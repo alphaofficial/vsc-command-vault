@@ -4,6 +4,8 @@ const test = require("node:test");
 const {
   activate,
   COMMAND_VAULT_CREATE_COMMAND_ID,
+  COMMAND_VAULT_DELETE_COMMAND_ID,
+  COMMAND_VAULT_EDIT_COMMAND_ID,
   COMMAND_VAULT_EXTENSION_NAME,
   COMMAND_VAULT_VIEW_ID,
   deactivate,
@@ -13,6 +15,8 @@ test("compiled extension exports the scaffold identifiers", () => {
   assert.equal(COMMAND_VAULT_EXTENSION_NAME, "Command Vault");
   assert.equal(COMMAND_VAULT_VIEW_ID, "commandVault.commands");
   assert.equal(COMMAND_VAULT_CREATE_COMMAND_ID, "commandVault.createCommand");
+  assert.equal(COMMAND_VAULT_EDIT_COMMAND_ID, "commandVault.editCommand");
+  assert.equal(COMMAND_VAULT_DELETE_COMMAND_ID, "commandVault.deleteCommand");
 });
 
 test("compiled activation hooks are callable", () => {
@@ -20,7 +24,7 @@ test("compiled activation hooks are callable", () => {
   assert.doesNotThrow(() => deactivate());
 });
 
-test("compiled activation registers the create command with a host", () => {
+test("compiled activation registers the create, edit, and delete commands", () => {
   const subscriptions = [];
   const registrations = [];
 
@@ -64,6 +68,10 @@ test("compiled activation registers the create command with a host", () => {
     },
   );
 
-  assert.deepEqual(registrations, [COMMAND_VAULT_CREATE_COMMAND_ID]);
-  assert.equal(subscriptions.length, 1);
+  assert.deepEqual(registrations, [
+    COMMAND_VAULT_CREATE_COMMAND_ID,
+    COMMAND_VAULT_EDIT_COMMAND_ID,
+    COMMAND_VAULT_DELETE_COMMAND_ID,
+  ]);
+  assert.equal(subscriptions.length, 3);
 });

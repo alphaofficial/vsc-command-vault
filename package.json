@@ -13,7 +13,9 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:commandVault.createCommand"
+    "onCommand:commandVault.createCommand",
+    "onCommand:commandVault.editCommand",
+    "onCommand:commandVault.deleteCommand"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -21,6 +23,14 @@
       {
         "command": "commandVault.createCommand",
         "title": "Command Vault: Create Command"
+      },
+      {
+        "command": "commandVault.editCommand",
+        "title": "Command Vault: Edit Command"
+      },
+      {
+        "command": "commandVault.deleteCommand",
+        "title": "Command Vault: Delete Command"
       }
     ]
   },
@@ -29,7 +39,7 @@
     "compile": "npm run build",
     "clean": "rm -rf out coverage",
     "test": "node --test ./test/**/*.test.js",
-    "test:vitest": "node --no-warnings --test --experimental-strip-types ./src/extension.test.ts ./src/command-vault/model.test.ts ./src/command-vault/repository.test.ts ./src/command-vault/execution.test.ts ./src/command-vault/create-command.test.ts"
+    "test:vitest": "node --no-warnings --test --experimental-strip-types ./src/extension.test.ts ./src/command-vault/model.test.ts ./src/command-vault/repository.test.ts ./src/command-vault/execution.test.ts ./src/command-vault/create-command.test.ts ./src/command-vault/edit-delete-command.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.1",

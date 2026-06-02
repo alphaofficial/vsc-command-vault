@@ -3,9 +3,18 @@ import {
   COMMAND_VAULT_CREATE_COMMAND_ID,
   createCommandVaultCreateService,
 } from "./command-vault/create-command.ts";
+import {
+  COMMAND_VAULT_DELETE_COMMAND_ID,
+  COMMAND_VAULT_EDIT_COMMAND_ID,
+  createCommandVaultEditDeleteService,
+} from "./command-vault/edit-delete-command.ts";
 import { createCommandVaultRepository } from "./command-vault/repository.ts";
 
-export { COMMAND_VAULT_CREATE_COMMAND_ID };
+export {
+  COMMAND_VAULT_CREATE_COMMAND_ID,
+  COMMAND_VAULT_DELETE_COMMAND_ID,
+  COMMAND_VAULT_EDIT_COMMAND_ID,
+};
 
 export const COMMAND_VAULT_VIEW_ID = "commandVault.commands";
 export const COMMAND_VAULT_EXTENSION_NAME = "Command Vault";
@@ -76,14 +85,35 @@ export function activate(
     window: resolvedHost.window,
     workspace: resolvedHost.workspace,
   });
+  const editDeleteCommand = createCommandVaultEditDeleteService({
+    repository,
+    window: resolvedHost.window,
+    workspace: resolvedHost.workspace,
+  });
   const createCommandDisposable = resolvedHost.commands.registerCommand(
     COMMAND_VAULT_CREATE_COMMAND_ID,
     async (requestedScope?: CommandVaultScope) => {
       await createCommand.createCommand(requestedScope);
     },
   );
+  const editCommandDisposable = resolvedHost.commands.registerCommand(
+    COMMAND_VAULT_EDIT_COMMAND_ID,
+    async (target?: { id: string; scope: CommandVaultScope }) => {
+      await editDeleteCommand.editCommand(target);
+    },
+  );
+  const deleteCommandDisposable = resolvedHost.commands.registerCommand(
+    COMMAND_VAULT_DELETE_COMMAND_ID,
+    async (target?: { id: string; scope: CommandVaultScope }) => {
+      await editDeleteCommand.deleteCommand(target);
+    },
+  );
 
-  context.subscriptions.push(createCommandDisposable);
+  context.subscriptions.push(
+    createCommandDisposable,
+    editCommandDisposable,
+    deleteCommandDisposable,
+  );
 }
 
 export function deactivate(): void {
