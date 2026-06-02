@@ -41,11 +41,13 @@ describe("extension scaffold", () => {
     const storagePath = await mkdtemp(join(tmpdir(), "command-vault-extension-"));
     const subscriptions: Array<{ dispose(): void }> = [];
     const registrations: string[] = [];
+    const commandCallbacks = new Map<string, (...args: unknown[]) => unknown>();
     const clipboardWrites: string[] = [];
     const sendTextCalls: Array<{ addNewLine: boolean | undefined; text: string }> =
       [];
     const showCalls: Array<boolean | undefined> = [];
     const warningMessages: string[] = [];
+    const inputBoxValues = ["Build", "npm run build", "Compile the project"];
     let registeredProvider:
       | {
           resolveWebviewView(webviewView: {
@@ -86,8 +88,9 @@ describe("extension scaffold", () => {
       },
       {
         commands: {
-          registerCommand(command) {
+          registerCommand(command, callback) {
             registrations.push(command);
+            commandCallbacks.set(command, callback);
             return {
               dispose() {
                 registrations.push("disposed");
@@ -122,7 +125,7 @@ describe("extension scaffold", () => {
             };
           },
           async showInputBox() {
-            return undefined;
+            return inputBoxValues.shift();
           },
           async showQuickPick(items) {
             return items[0];
@@ -147,6 +150,7 @@ describe("extension scaffold", () => {
     };
 
     await registeredProvider?.resolveWebviewView({ webview });
+    assert.match(webview.html, />Start app</);
     await receiveMessage?.({
       type: "commandVault.action",
       action: "copy",
@@ -163,6 +167,10 @@ describe("extension scaffold", () => {
         scope: "global",
       },
     });
+    await commandCallbacks.get(COMMAND_VAULT_CREATE_COMMAND_ID)?.("global");
+    assert.match(webview.html, />Build</);
+    assert.match(webview.html, /npm run build/);
+    await commandCallbacks.get(COMMAND_VAULT_DELETE_COMMAND_ID)?.();
 
     assert.deepEqual(registrations, [
       COMMAND_VAULT_CREATE_COMMAND_ID,
@@ -173,6 +181,8 @@ describe("extension scaffold", () => {
     ]);
     assert.equal(webview.options.enableScripts, true);
     assert.match(webview.html, /data-command-vault-action="run"/);
+    assert.doesNotMatch(webview.html, />Start app</);
+    assert.match(webview.html, />Build</);
     assert.deepEqual(clipboardWrites, ["npm run dev"]);
     assert.deepEqual(showCalls, [false]);
     assert.deepEqual(sendTextCalls, [

@@ -161,6 +161,48 @@ describe("command vault sidebar", () => {
     assert.equal(repository.readGlobalCommandsCalls, 1);
     assert.equal(repository.readWorkspaceCommandsCalls.length, 1);
   });
+
+  it("refreshes the active webview with updated workspace and global commands", async () => {
+    const repository = createRepositoryRecorder({
+      globalCommands: [createCommand("global", "global-1", { name: "Lint" })],
+      workspaceCommands: [
+        createCommand("workspace", "workspace-1", { name: "Test" }),
+      ],
+    });
+    const provider = createCommandVaultSidebarProvider({
+      repository,
+      workspace: {
+        workspaceFolders: [
+          {
+            uri: {
+              fsPath: "/tmp/project-gamma",
+            },
+          },
+        ],
+      },
+    });
+    const webview = {
+      html: "",
+      options: {},
+    };
+
+    await provider.resolveWebviewView({ webview });
+    repository.setCommands({
+      globalCommands: [createCommand("global", "global-2", { name: "Build" })],
+      workspaceCommands: [
+        createCommand("workspace", "workspace-2", { name: "Preview" }),
+      ],
+    });
+
+    await provider.refresh();
+
+    assert.match(webview.html, />Build</);
+    assert.match(webview.html, />Preview</);
+    assert.doesNotMatch(webview.html, />Lint</);
+    assert.doesNotMatch(webview.html, />Test</);
+    assert.equal(repository.readGlobalCommandsCalls, 2);
+    assert.equal(repository.readWorkspaceCommandsCalls.length, 2);
+  });
 });
 
 function createRepositoryRecorder({
@@ -172,6 +214,10 @@ function createRepositoryRecorder({
 } = {}): {
   readGlobalCommandsCalls: number;
   readWorkspaceCommandsCalls: Array<string | null>;
+  setCommands(next: {
+    globalCommands?: CommandVaultCommand[];
+    workspaceCommands?: CommandVaultCommand[];
+  }): void;
   readGlobalCommands(): Promise<CommandVaultCommand[]>;
   readWorkspaceCommands(workspaceId: string | null): Promise<CommandVaultCommand[]>;
   writeGlobalCommands(): Promise<void>;
@@ -179,19 +225,30 @@ function createRepositoryRecorder({
 } {
   let readGlobalCommandsCalls = 0;
   const readWorkspaceCommandsCalls: Array<string | null> = [];
+  let currentGlobalCommands = [...globalCommands];
+  let currentWorkspaceCommands = [...workspaceCommands];
 
   return {
     get readGlobalCommandsCalls() {
       return readGlobalCommandsCalls;
     },
     readWorkspaceCommandsCalls,
+    setCommands(next) {
+      if (next.globalCommands) {
+        currentGlobalCommands = [...next.globalCommands];
+      }
+
+      if (next.workspaceCommands) {
+        currentWorkspaceCommands = [...next.workspaceCommands];
+      }
+    },
     async readGlobalCommands() {
       readGlobalCommandsCalls += 1;
-      return [...globalCommands];
+      return [...currentGlobalCommands];
     },
     async readWorkspaceCommands(workspaceId) {
       readWorkspaceCommandsCalls.push(workspaceId);
-      return [...workspaceCommands];
+      return [...currentWorkspaceCommands];
     },
     async writeGlobalCommands() {},
     async writeWorkspaceCommands() {},

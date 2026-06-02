@@ -135,20 +135,55 @@ export function activate(
     clipboard: resolvedHost.env.clipboard,
     terminals: resolvedHost.window,
   });
+  const sidebarProvider = createCommandVaultSidebarProvider({
+    onDidReceiveMessage: async (message) => {
+      switch (message.action) {
+        case "copy":
+          await handleCopyCommand(message.target);
+          return;
+        case "delete":
+          await handleDeleteCommand(message.target);
+          return;
+        case "edit":
+          await handleEditCommand(message.target);
+          return;
+        case "run":
+          await handleRunCommand(message.target);
+          return;
+      }
+    },
+    repository,
+    workspace: resolvedHost.workspace,
+  });
+  const refreshSidebar = async () => {
+    await sidebarProvider.refresh();
+  };
   const handleCreateCommand = async (requestedScope?: CommandVaultScope) => {
-    await createCommand.createCommand(requestedScope);
+    const createdCommand = await createCommand.createCommand(requestedScope);
+
+    if (createdCommand) {
+      await refreshSidebar();
+    }
   };
   const handleEditCommand = async (target?: {
     id: string;
     scope: CommandVaultScope;
   }) => {
-    await editDeleteCommand.editCommand(target);
+    const updatedCommand = await editDeleteCommand.editCommand(target);
+
+    if (updatedCommand) {
+      await refreshSidebar();
+    }
   };
   const handleDeleteCommand = async (target?: {
     id: string;
     scope: CommandVaultScope;
   }) => {
-    await editDeleteCommand.deleteCommand(target);
+    const deletedCommand = await editDeleteCommand.deleteCommand(target);
+
+    if (deletedCommand) {
+      await refreshSidebar();
+    }
   };
   const handleRunCommand = async (target?: {
     id: string;
@@ -182,26 +217,6 @@ export function activate(
 
     await execution.copyCommand(command);
   };
-  const sidebarProvider = createCommandVaultSidebarProvider({
-    onDidReceiveMessage: async (message) => {
-      switch (message.action) {
-        case "copy":
-          await handleCopyCommand(message.target);
-          return;
-        case "delete":
-          await handleDeleteCommand(message.target);
-          return;
-        case "edit":
-          await handleEditCommand(message.target);
-          return;
-        case "run":
-          await handleRunCommand(message.target);
-          return;
-      }
-    },
-    repository,
-    workspace: resolvedHost.workspace,
-  });
   const createCommandDisposable = resolvedHost.commands.registerCommand(
     COMMAND_VAULT_CREATE_COMMAND_ID,
     handleCreateCommand,

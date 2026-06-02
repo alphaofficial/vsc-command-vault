@@ -29,6 +29,11 @@ export interface CommandVaultWebviewViewProvider {
   ): void | Promise<void>;
 }
 
+export interface CommandVaultSidebarController
+  extends CommandVaultWebviewViewProvider {
+  refresh(): Promise<void>;
+}
+
 export interface CreateCommandVaultSidebarProviderOptions {
   onDidReceiveMessage?: (
     message: CommandVaultSidebarActionMessage,
@@ -56,13 +61,26 @@ export interface CommandVaultSidebarActionMessage {
 
 export function createCommandVaultSidebarProvider(
   options: CreateCommandVaultSidebarProviderOptions,
-): CommandVaultWebviewViewProvider {
+): CommandVaultSidebarController {
+  let activeWebviewView: CommandVaultWebviewView | undefined;
+
+  const refresh = async () => {
+    if (!activeWebviewView) {
+      return;
+    }
+
+    const state = await loadCommandVaultSidebarState(
+      options.repository,
+      options.workspace.workspaceFolders,
+    );
+
+    activeWebviewView.webview.html = renderCommandVaultSidebarHtml(state);
+  };
+
   return {
+    refresh,
     async resolveWebviewView(webviewView) {
-      const state = await loadCommandVaultSidebarState(
-        options.repository,
-        options.workspace.workspaceFolders,
-      );
+      activeWebviewView = webviewView;
 
       webviewView.webview.options = {
         ...webviewView.webview.options,
@@ -77,7 +95,7 @@ export function createCommandVaultSidebarProvider(
 
         await options.onDidReceiveMessage(actionMessage);
       });
-      webviewView.webview.html = renderCommandVaultSidebarHtml(state);
+      await refresh();
     },
   };
 }
