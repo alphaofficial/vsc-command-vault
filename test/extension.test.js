@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { mkdtemp, mkdir, writeFile } = require("node:fs/promises");
+const { mkdtemp, mkdir, readFile, writeFile } = require("node:fs/promises");
 const { join } = require("node:path");
 const { tmpdir } = require("node:os");
 const test = require("node:test");
@@ -186,6 +186,149 @@ test("compiled activation routes sidebar actions to execution handlers", async (
   assert.equal(subscriptions.length, 9);
 });
 
+test("compiled activation routes quick-pick search actions", async () => {
+  const storagePath = await mkdtemp(join(tmpdir(), "command-vault-search-"));
+  const commandCallbacks = new Map();
+  const sendTextCalls = [];
+  const warningMessages = [];
+  const inputBoxValues = [
+    "Preview app",
+    "npm run preview",
+    "Start the preview server",
+  ];
+  const quickPick = createQuickPickHarness();
+  let registeredProvider;
+
+  await mkdir(join(storagePath, "workspaces"), { recursive: true });
+  await writeFile(
+    join(storagePath, "global.json"),
+    `${JSON.stringify([createStoredCommand()], null, 2)}\n`,
+    { encoding: "utf8" },
+  );
+
+  activate(
+    {
+      globalStorageUri: {
+        fsPath: storagePath,
+      },
+      subscriptions: {
+        push(...items) {
+          return items.length;
+        },
+      },
+    },
+    {
+      commands: {
+        executeCommand() {
+          return undefined;
+        },
+        registerCommand(command, callback) {
+          commandCallbacks.set(command, callback);
+          return {
+            dispose() {},
+          };
+        },
+      },
+      env: {
+        clipboard: {
+          async writeText() {},
+        },
+      },
+      window: {
+        activeTerminal: {
+          sendText(text, addNewLine) {
+            sendTextCalls.push({ text, addNewLine });
+          },
+          show() {},
+        },
+        createTerminal() {
+          throw new Error("active terminal should be reused");
+        },
+        registerWebviewViewProvider(_viewId, provider) {
+          registeredProvider = provider;
+          return {
+            dispose() {},
+          };
+        },
+        createQuickPick() {
+          return quickPick.instance;
+        },
+        async showInputBox() {
+          return inputBoxValues.shift();
+        },
+        async showQuickPick(items) {
+          return items[0];
+        },
+        showWarningMessage(message) {
+          warningMessages.push(message);
+          return undefined;
+        },
+      },
+      workspace: {
+        workspaceFolders: undefined,
+      },
+    },
+  );
+
+  const webview = {
+    html: "",
+    onDidReceiveMessage() {},
+    options: {},
+  };
+
+  await registeredProvider.resolveWebviewView({ webview });
+
+  const runSearchPromise = commandCallbacks.get(COMMAND_VAULT_SEARCH_COMMAND_ID)();
+  await waitForQuickPickShow(quickPick, 1);
+  await quickPick.accept();
+  await runSearchPromise;
+
+  const pasteSearchPromise = commandCallbacks.get(COMMAND_VAULT_SEARCH_COMMAND_ID)();
+  await waitForQuickPickShow(quickPick, 2);
+  await commandCallbacks.get("commandVault.searchCommands.paste")();
+  await pasteSearchPromise;
+
+  const editSearchPromise = commandCallbacks.get(COMMAND_VAULT_SEARCH_COMMAND_ID)();
+  await waitForQuickPickShow(quickPick, 3);
+  await commandCallbacks.get("commandVault.searchCommands.edit")();
+  await editSearchPromise;
+
+  const persistedCommands = JSON.parse(
+    await readFile(join(storagePath, "global.json"), { encoding: "utf8" }),
+  );
+
+  assert.deepEqual(sendTextCalls, [
+    {
+      text: "npm run dev",
+      addNewLine: true,
+    },
+    {
+      text: "npm run dev",
+      addNewLine: false,
+    },
+  ]);
+  assert.match(webview.html, />Preview app</);
+  assert.match(webview.html, /npm run preview/);
+  assert.doesNotMatch(webview.html, />Start app</);
+  assert.deepEqual(persistedCommands, [
+    {
+      name: "Preview app",
+      command: "npm run preview",
+      description: "Start the preview server",
+      id: "global-1",
+      scope: "global",
+      createdAt: "2026-06-02T00:00:00.000Z",
+      updatedAt: persistedCommands[0]?.updatedAt,
+    },
+  ]);
+  assert.notEqual(
+    persistedCommands[0]?.updatedAt,
+    "2026-06-02T00:00:00.000Z",
+  );
+  assert.deepEqual(warningMessages, []);
+  assert.equal(quickPick.showCalls, 3);
+});
+
 function createStoredCommand() {
   return {
     id: "global-1",
@@ -196,4 +339,59 @@ function createStoredCommand() {
     createdAt: "2026-06-02T00:00:00.000Z",
     updatedAt: "2026-06-02T00:00:00.000Z",
   };
+}
+
+function createQuickPickHarness() {
+  let acceptListener;
+  let hideListener;
+  let showCalls = 0;
+  const instance = {
+    activeItems: [],
+    items: [],
+    matchOnDescription: false,
+    matchOnDetail: false,
+    placeholder: "",
+    title: "",
+    dispose() {},
+    hide() {
+      void hideListener?.();
+    },
+    onDidAccept(listener) {
+      acceptListener = listener;
+      return { dispose() {} };
+    },
+    onDidHide(listener) {
+      hideListener = listener;
+      return { dispose() {} };
+    },
+    show() {
+      showCalls += 1;
+
+      if (instance.items[0]) {
+        instance.activeItems = [instance.items[0]];
+      }
+    },
+  };
+
+  return {
+    get showCalls() {
+      return showCalls;
+    },
+    instance,
+    async accept() {
+      await acceptListener?.();
+    },
+  };
+}
+
+async function waitForQuickPickShow(quickPick, expectedShowCalls) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (quickPick.showCalls >= expectedShowCalls) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  throw new Error(`quick pick was not shown ${expectedShowCalls} time(s)`);
 }
