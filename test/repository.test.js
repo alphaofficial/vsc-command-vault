@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
-const { mkdtemp, readFile, rm } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
-const { join } = require("node:path");
+const { dirname, join } = require("node:path");
 const test = require("node:test");
 
 const {
@@ -85,6 +85,71 @@ test("compiled repository persists global and workspace command files", async ()
         ),
       ),
       workspaceCommands,
+    );
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("compiled repository warns and ignores malformed or invalid storage data", async () => {
+  const tempDirectory = await mkdtemp(join(tmpdir(), "command-vault-repo-"));
+  const storageRoot = join(tempDirectory, "storage-root");
+  const workspaceId = createWorkspaceId("/tmp/project-invalid");
+  const globalStoragePath = join(storageRoot, COMMAND_VAULT_GLOBAL_STORAGE_FILE);
+  const workspaceStoragePath = join(
+    storageRoot,
+    getWorkspaceStorageFilePath(workspaceId),
+  );
+  const warnings = [];
+  const repository = createCommandVaultRepository(
+    { fsPath: storageRoot },
+    {
+      onWarning(message) {
+        warnings.push(message);
+      },
+    },
+  );
+
+  try {
+    await mkdir(dirname(globalStoragePath), { recursive: true });
+    await mkdir(dirname(workspaceStoragePath), { recursive: true });
+    await writeFile(globalStoragePath, '{"broken":', { encoding: "utf8" });
+    await writeFile(
+      workspaceStoragePath,
+      JSON.stringify([
+        {
+          id: "command_workspace_dev",
+          scope: "workspace",
+          name: "Start app",
+          command: "npm run dev",
+          description: null,
+          createdAt: "2026-06-02T00:00:00.000Z",
+          updatedAt: "2026-06-02T00:00:00.000Z",
+        },
+        "bad-entry",
+      ]),
+      { encoding: "utf8" },
+    );
+
+    assert.deepEqual(await repository.readGlobalCommands(), []);
+    assert.deepEqual(await repository.readWorkspaceCommands(workspaceId), [
+      {
+        id: "command_workspace_dev",
+        scope: "workspace",
+        name: "Start app",
+        command: "npm run dev",
+        description: null,
+        createdAt: "2026-06-02T00:00:00.000Z",
+        updatedAt: "2026-06-02T00:00:00.000Z",
+      },
+    ]);
+    assert.equal(warnings.length, 2);
+    assert.match(warnings[0], /ignored malformed JSON/u);
+    assert.match(warnings[1], /ignored invalid command entries/u);
+    assert.match(warnings[1], /commands\[1\] must be an object/u);
+    assert.equal(
+      await readFile(globalStoragePath, { encoding: "utf8" }),
+      '{"broken":',
     );
   } finally {
     await rm(tempDirectory, { recursive: true, force: true });

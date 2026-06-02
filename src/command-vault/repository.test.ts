@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import assert from "node:assert/strict";
 
 import { afterEach, describe, it } from "node:test";
@@ -105,6 +105,89 @@ describe("command vault repository", () => {
     assert.deepEqual(
       await readJsonFile(storageFilePath),
       SAMPLE_WORKSPACE_COMMANDS,
+    );
+  });
+
+  it("ignores malformed JSON files and emits a non-blocking warning", async () => {
+    const storageRoot = await createTempStorageRoot();
+    const storageFilePath = join(
+      storageRoot,
+      COMMAND_VAULT_GLOBAL_STORAGE_FILE,
+    );
+    const warnings: string[] = [];
+    const repository = createCommandVaultRepository(
+      { fsPath: storageRoot },
+      {
+        onWarning(message) {
+          warnings.push(message);
+        },
+      },
+    );
+
+    await mkdir(dirname(storageFilePath), { recursive: true });
+    await writeFile(storageFilePath, '{"broken":', { encoding: "utf8" });
+
+    assert.deepEqual(await repository.readGlobalCommands(), []);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0] ?? "", /ignored malformed JSON/u);
+    assert.match(warnings[0] ?? "", /global\.json/u);
+    assert.equal(
+      await readFile(storageFilePath, { encoding: "utf8" }),
+      '{"broken":',
+    );
+  });
+
+  it("filters invalid command entries, keeps valid ones, and warns once", async () => {
+    const storageRoot = await createTempStorageRoot();
+    const workspaceId = createWorkspaceId("/tmp/project-gamma");
+    const storageFilePath = join(
+      storageRoot,
+      getWorkspaceStorageFilePath(workspaceId),
+    );
+    const warnings: string[] = [];
+    const repository = createCommandVaultRepository(
+      { fsPath: storageRoot },
+      {
+        onWarning(message) {
+          warnings.push(message);
+        },
+      },
+    );
+    const persistedContents = JSON.stringify(
+      [
+        SAMPLE_WORKSPACE_COMMANDS[0],
+        {
+          id: "command_invalid_scope",
+          scope: "folder",
+          name: "Broken scope",
+          command: "npm run lint",
+          description: null,
+          createdAt: "2026-06-02T00:00:00.000Z",
+          updatedAt: "2026-06-02T00:00:00.000Z",
+        },
+        "bad-entry",
+      ],
+      null,
+      2,
+    );
+
+    await mkdir(dirname(storageFilePath), { recursive: true });
+    await writeFile(storageFilePath, persistedContents, { encoding: "utf8" });
+
+    assert.deepEqual(
+      await repository.readWorkspaceCommands(workspaceId),
+      SAMPLE_WORKSPACE_COMMANDS,
+    );
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0] ?? "", /ignored invalid command entries/u);
+    assert.match(
+      warnings[0] ?? "",
+      /commands\[1\]\.scope must be either 'global' or 'workspace'/u,
+    );
+    assert.match(warnings[0] ?? "", /commands\[2\] must be an object/u);
+    assert.equal(
+      await readFile(storageFilePath, { encoding: "utf8" }),
+      persistedContents,
     );
   });
 });

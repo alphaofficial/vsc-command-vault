@@ -1,10 +1,14 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import type { CommandVaultCommand } from "./model.ts";
+import type {
+  CommandValidationIssue,
+  CommandVaultCommand,
+} from "./model.ts";
 import {
   COMMAND_VAULT_GLOBAL_STORAGE_FILE,
   getWorkspaceStorageFilePath,
+  validatePersistedCommandRecords,
 } from "./model.ts";
 
 export interface CommandVaultStorageUri {
@@ -23,13 +27,23 @@ export interface CommandVaultRepository {
   ): Promise<void>;
 }
 
+export interface CommandVaultRepositoryOptions {
+  onWarning?: CommandVaultWarningHandler;
+}
+
+export type CommandVaultWarningHandler = (
+  message: string,
+) => void | Promise<void>;
+
 export function createCommandVaultRepository(
   globalStorageUri: CommandVaultStorageUri,
+  options: CommandVaultRepositoryOptions = {},
 ): CommandVaultRepository {
   return {
     async readGlobalCommands() {
       return readCommandsFile(
         getGlobalCommandsStoragePath(globalStorageUri.fsPath),
+        options.onWarning,
       );
     },
 
@@ -47,6 +61,7 @@ export function createCommandVaultRepository(
 
       return readCommandsFile(
         getWorkspaceCommandsStoragePath(globalStorageUri.fsPath, workspaceId),
+        options.onWarning,
       );
     },
 
@@ -70,10 +85,29 @@ function getWorkspaceCommandsStoragePath(
   return join(globalStorageFsPath, getWorkspaceStorageFilePath(workspaceId));
 }
 
-async function readCommandsFile(filePath: string): Promise<CommandVaultCommand[]> {
+async function readCommandsFile(
+  filePath: string,
+  onWarning?: CommandVaultWarningHandler,
+): Promise<CommandVaultCommand[]> {
   try {
     const contents = await readFile(filePath, { encoding: "utf8" });
-    return JSON.parse(contents) as CommandVaultCommand[];
+    const parsed = parseCommandsFile(contents, filePath);
+
+    if (!parsed.ok) {
+      await emitWarning(onWarning, parsed.warning);
+      return [];
+    }
+
+    const validation = validatePersistedCommandRecords(parsed.value);
+
+    if (validation.issues.length > 0) {
+      await emitWarning(
+        onWarning,
+        formatValidationWarning(filePath, validation.issues),
+      );
+    }
+
+    return validation.valid;
   } catch (error) {
     if (isFileNotFoundError(error)) {
       return [];
@@ -100,4 +134,69 @@ function isFileNotFoundError(error: unknown): error is { code: "ENOENT" } {
     "code" in error &&
     error.code === "ENOENT"
   );
+}
+
+function parseCommandsFile(
+  contents: string,
+  filePath: string,
+):
+  | { ok: true; value: unknown }
+  | { ok: false; warning: string } {
+  try {
+    return {
+      ok: true,
+      value: JSON.parse(contents) as unknown,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      warning: formatJsonParseWarning(filePath, error),
+    };
+  }
+}
+
+function formatJsonParseWarning(filePath: string, error: unknown): string {
+  return [
+    `Command Vault ignored malformed JSON in ${filePath}.`,
+    getErrorMessage(error),
+  ].join(" ");
+}
+
+function formatValidationWarning(
+  filePath: string,
+  issues: readonly CommandValidationIssue[],
+): string {
+  return [
+    `Command Vault ignored invalid command entries in ${filePath}.`,
+    formatValidationIssues(issues),
+  ].join(" ");
+}
+
+function formatValidationIssues(
+  issues: readonly CommandValidationIssue[],
+): string {
+  return issues.map((issue) => `${issue.path} ${issue.message}`).join("; ");
+}
+
+async function emitWarning(
+  onWarning: CommandVaultWarningHandler | undefined,
+  message: string,
+): Promise<void> {
+  if (!onWarning) {
+    return;
+  }
+
+  try {
+    await onWarning(message);
+  } catch {
+    // Warning delivery should never break command reads.
+  }
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return "Unknown JSON parse error.";
 }
