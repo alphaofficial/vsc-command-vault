@@ -12,6 +12,7 @@ import {
   COMMAND_VAULT_EDIT_COMMAND_ID,
   COMMAND_VAULT_EXTENSION_NAME,
   COMMAND_VAULT_RUN_COMMAND_ID,
+  COMMAND_VAULT_SEARCH_COMMAND_ID,
   COMMAND_VAULT_VIEW_CONTAINER_ID,
   COMMAND_VAULT_VIEW_ID,
   deactivate,
@@ -30,6 +31,10 @@ describe("extension scaffold", () => {
       "commandVault.deleteCommand",
     );
     assert.equal(COMMAND_VAULT_RUN_COMMAND_ID, "commandVault.runCommand");
+    assert.equal(
+      COMMAND_VAULT_SEARCH_COMMAND_ID,
+      "commandVault.searchCommands",
+    );
   });
 
   it("keeps activation hooks callable", () => {
@@ -124,6 +129,29 @@ describe("extension scaffold", () => {
               dispose() {},
             };
           },
+          createQuickPick() {
+            return {
+              activeItems: [],
+              items: [],
+              matchOnDescription: false,
+              matchOnDetail: false,
+              placeholder: "",
+              title: "",
+              dispose() {},
+              hide() {},
+              onDidAccept() {
+                return {
+                  dispose() {},
+                };
+              },
+              onDidHide() {
+                return {
+                  dispose() {},
+                };
+              },
+              show() {},
+            };
+          },
           async showInputBox() {
             return inputBoxValues.shift();
           },
@@ -178,6 +206,9 @@ describe("extension scaffold", () => {
       COMMAND_VAULT_DELETE_COMMAND_ID,
       COMMAND_VAULT_RUN_COMMAND_ID,
       COMMAND_VAULT_COPY_COMMAND_ID,
+      COMMAND_VAULT_SEARCH_COMMAND_ID,
+      "commandVault.searchCommands.paste",
+      "commandVault.searchCommands.edit",
     ]);
     assert.equal(webview.options.enableScripts, true);
     assert.match(webview.html, /data-command-vault-action="run"/);
@@ -192,7 +223,7 @@ describe("extension scaffold", () => {
       },
     ]);
     assert.deepEqual(warningMessages, []);
-    assert.equal(subscriptions.length, 6);
+    assert.equal(subscriptions.length, 9);
   });
 });
 

@@ -12,6 +12,7 @@ const {
   COMMAND_VAULT_EDIT_COMMAND_ID,
   COMMAND_VAULT_EXTENSION_NAME,
   COMMAND_VAULT_RUN_COMMAND_ID,
+  COMMAND_VAULT_SEARCH_COMMAND_ID,
   COMMAND_VAULT_VIEW_CONTAINER_ID,
   COMMAND_VAULT_VIEW_ID,
   deactivate,
@@ -26,6 +27,7 @@ test("compiled extension exports the scaffold identifiers", () => {
   assert.equal(COMMAND_VAULT_EDIT_COMMAND_ID, "commandVault.editCommand");
   assert.equal(COMMAND_VAULT_DELETE_COMMAND_ID, "commandVault.deleteCommand");
   assert.equal(COMMAND_VAULT_RUN_COMMAND_ID, "commandVault.runCommand");
+  assert.equal(COMMAND_VAULT_SEARCH_COMMAND_ID, "commandVault.searchCommands");
 });
 
 test("compiled activation hooks are callable", () => {
@@ -98,6 +100,25 @@ test("compiled activation routes sidebar actions to execution handlers", async (
             dispose() {},
           };
         },
+        createQuickPick() {
+          return {
+            activeItems: [],
+            items: [],
+            matchOnDescription: false,
+            matchOnDetail: false,
+            placeholder: "",
+            title: "",
+            dispose() {},
+            hide() {},
+            onDidAccept() {
+              return { dispose() {} };
+            },
+            onDidHide() {
+              return { dispose() {} };
+            },
+            show() {},
+          };
+        },
         async showInputBox() {
           return undefined;
         },
@@ -147,6 +168,9 @@ test("compiled activation routes sidebar actions to execution handlers", async (
     COMMAND_VAULT_DELETE_COMMAND_ID,
     COMMAND_VAULT_RUN_COMMAND_ID,
     COMMAND_VAULT_COPY_COMMAND_ID,
+    COMMAND_VAULT_SEARCH_COMMAND_ID,
+    "commandVault.searchCommands.paste",
+    "commandVault.searchCommands.edit",
   ]);
   assert.equal(webview.options.enableScripts, true);
   assert.match(webview.html, /data-command-vault-action="run"/);
@@ -159,7 +183,7 @@ test("compiled activation routes sidebar actions to execution handlers", async (
     },
   ]);
   assert.deepEqual(warningMessages, []);
-  assert.equal(subscriptions.length, 6);
+  assert.equal(subscriptions.length, 9);
 });
 
 function createStoredCommand() {

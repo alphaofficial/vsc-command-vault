@@ -18,7 +18,8 @@
     "onCommand:commandVault.copyCommand",
     "onCommand:commandVault.editCommand",
     "onCommand:commandVault.deleteCommand",
-    "onCommand:commandVault.runCommand"
+    "onCommand:commandVault.runCommand",
+    "onCommand:commandVault.searchCommands"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -59,6 +60,23 @@
       {
         "command": "commandVault.deleteCommand",
         "title": "Command Vault: Delete Command"
+      },
+      {
+        "command": "commandVault.searchCommands",
+        "title": "Command Vault: Search Commands"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "commandVault.searchCommands.paste",
+        "key": "alt+enter",
+        "when": "inQuickOpen && commandVault.searchCommandsVisible"
+      },
+      {
+        "command": "commandVault.searchCommands.edit",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "inQuickOpen && commandVault.searchCommandsVisible"
       }
     ]
   },
@@ -67,7 +85,7 @@
     "compile": "npm run build",
     "clean": "rm -rf out coverage",
     "test": "node --test ./test/**/*.test.js",
-    "test:vitest": "node --no-warnings --test --experimental-strip-types ./src/extension.test.ts ./src/command-vault/model.test.ts ./src/command-vault/repository.test.ts ./src/command-vault/execution.test.ts ./src/command-vault/create-command.test.ts ./src/command-vault/edit-delete-command.test.ts ./src/command-vault/sidebar.test.ts"
+    "test:vitest": "node --no-warnings --test --experimental-strip-types ./src/extension.test.ts ./src/command-vault/model.test.ts ./src/command-vault/repository.test.ts ./src/command-vault/execution.test.ts ./src/command-vault/create-command.test.ts ./src/command-vault/edit-delete-command.test.ts ./src/command-vault/search-command.test.ts ./src/command-vault/sidebar.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.1",

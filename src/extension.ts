@@ -15,6 +15,12 @@ import {
   resolveStoredCommandForAction,
 } from "./command-vault/execution.ts";
 import { createCommandVaultRepository } from "./command-vault/repository.ts";
+import {
+  COMMAND_VAULT_SEARCH_COMMAND_ID,
+  COMMAND_VAULT_SEARCH_EDIT_COMMAND_ID,
+  COMMAND_VAULT_SEARCH_PASTE_COMMAND_ID,
+  createCommandVaultSearchService,
+} from "./command-vault/search-command.ts";
 import { createCommandVaultSidebarProvider } from "./command-vault/sidebar.ts";
 
 export {
@@ -23,6 +29,7 @@ export {
   COMMAND_VAULT_DELETE_COMMAND_ID,
   COMMAND_VAULT_EDIT_COMMAND_ID,
   COMMAND_VAULT_RUN_COMMAND_ID,
+  COMMAND_VAULT_SEARCH_COMMAND_ID,
 };
 
 export const COMMAND_VAULT_VIEW_CONTAINER_ID = "commandVault";
@@ -44,6 +51,10 @@ export interface CommandVaultExtensionContext {
 
 export interface CommandVaultExtensionHost {
   commands: {
+    executeCommand?(
+      command: string,
+      ...args: unknown[]
+    ): unknown;
     registerCommand(
       command: string,
       callback: (...args: unknown[]) => unknown,
@@ -81,6 +92,23 @@ export interface CommandVaultExtensionHost {
         }): void | Promise<void>;
       },
     ): CommandVaultExtensionDisposable;
+    createQuickPick?<Item extends { label: string }>() : {
+      activeItems: readonly Item[];
+      items: readonly Item[];
+      matchOnDescription: boolean;
+      matchOnDetail: boolean;
+      placeholder: string;
+      title: string;
+      dispose(): void;
+      hide(): void;
+      onDidAccept(
+        listener: () => void | Promise<void>,
+      ): CommandVaultExtensionDisposable;
+      onDidHide(
+        listener: () => void | Promise<void>,
+      ): CommandVaultExtensionDisposable;
+      show(): void;
+    };
     showInputBox(options: {
       placeHolder?: string;
       prompt?: string;
@@ -134,6 +162,23 @@ export function activate(
   const execution = createCommandVaultExecutionService({
     clipboard: resolvedHost.env.clipboard,
     terminals: resolvedHost.window,
+  });
+  const search = createCommandVaultSearchService({
+    commands: resolvedHost.commands,
+    repository,
+    window: {
+      createQuickPick() {
+        const quickPickFactory = resolvedHost.window.createQuickPick;
+
+        if (!quickPickFactory) {
+          throw new Error("Command Vault search requires quick pick support.");
+        }
+
+        return quickPickFactory();
+      },
+      showWarningMessage: resolvedHost.window.showWarningMessage,
+    },
+    workspace: resolvedHost.workspace,
   });
   const sidebarProvider = createCommandVaultSidebarProvider({
     onDidReceiveMessage: async (message) => {
@@ -217,6 +262,38 @@ export function activate(
 
     await execution.copyCommand(command);
   };
+  const dispatchSearchSelection = async (selection: {
+    action: "edit" | "paste" | "run";
+    command: {
+      command: string;
+      id: string;
+      scope: CommandVaultScope;
+    };
+  }) => {
+    switch (selection.action) {
+      case "edit":
+        await handleEditCommand({
+          id: selection.command.id,
+          scope: selection.command.scope,
+        });
+        return;
+      case "paste":
+        await execution.pasteCommand(selection.command);
+        return;
+      case "run":
+        await execution.runCommand(selection.command);
+        return;
+    }
+  };
+  const handleSearchCommand = async () => {
+    const selection = await search.searchCommands();
+
+    if (!selection) {
+      return;
+    }
+
+    await dispatchSearchSelection(selection);
+  };
   const createCommandDisposable = resolvedHost.commands.registerCommand(
     COMMAND_VAULT_CREATE_COMMAND_ID,
     handleCreateCommand,
@@ -237,6 +314,22 @@ export function activate(
     COMMAND_VAULT_COPY_COMMAND_ID,
     handleCopyCommand,
   );
+  const searchCommandDisposable = resolvedHost.commands.registerCommand(
+    COMMAND_VAULT_SEARCH_COMMAND_ID,
+    handleSearchCommand,
+  );
+  const searchPasteCommandDisposable = resolvedHost.commands.registerCommand(
+    COMMAND_VAULT_SEARCH_PASTE_COMMAND_ID,
+    async () => {
+      await search.triggerActiveAction("paste");
+    },
+  );
+  const searchEditCommandDisposable = resolvedHost.commands.registerCommand(
+    COMMAND_VAULT_SEARCH_EDIT_COMMAND_ID,
+    async () => {
+      await search.triggerActiveAction("edit");
+    },
+  );
   const sidebarDisposable = resolvedHost.window.registerWebviewViewProvider(
     COMMAND_VAULT_VIEW_ID,
     sidebarProvider,
@@ -248,6 +341,9 @@ export function activate(
     deleteCommandDisposable,
     runCommandDisposable,
     copyCommandDisposable,
+    searchCommandDisposable,
+    searchPasteCommandDisposable,
+    searchEditCommandDisposable,
     sidebarDisposable,
   );
 }
