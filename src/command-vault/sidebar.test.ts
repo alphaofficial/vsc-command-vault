@@ -6,6 +6,7 @@ import {
   createCommandVaultSidebarProvider,
   loadCommandVaultSidebarState,
   renderCommandVaultSidebarHtml,
+  type CommandVaultSidebarActionMessage,
 } from "./sidebar.ts";
 
 describe("command vault sidebar", () => {
@@ -23,6 +24,108 @@ describe("command vault sidebar", () => {
     assert.match(html, /Open a workspace folder to save workspace commands\./);
     assert.match(html, /No global commands yet/);
     assert.match(html, /Save reusable personal commands here\./);
+  });
+
+  it("renders command cards with visible actions for both scopes", async () => {
+    const state = await loadCommandVaultSidebarState(
+      createRepositoryRecorder({
+        globalCommands: [
+          createCommand("global", "global-1", {
+            command: "pnpm lint",
+            description: "Lint the repo",
+            name: "Lint",
+          }),
+        ],
+        workspaceCommands: [
+          createCommand("workspace", "workspace-1", {
+            command: "npm test",
+            description: "Run tests",
+            name: "Test",
+          }),
+        ],
+      }),
+      [
+        {
+          uri: {
+            fsPath: "/tmp/project-gamma",
+          },
+        },
+      ],
+    );
+
+    const html = renderCommandVaultSidebarHtml(state);
+
+    assert.match(html, /class="command-card"/);
+    assert.match(html, />Test</);
+    assert.match(html, /Run tests/);
+    assert.match(html, /npm test/);
+    assert.match(html, /pnpm lint/);
+    assert.match(html, /data-command-vault-action="run"/);
+    assert.match(html, /data-command-vault-action="copy"/);
+    assert.match(html, /data-command-vault-action="edit"/);
+    assert.match(html, /data-command-vault-action="delete"/);
+    assert.doesNotMatch(html, /saved commands/);
+  });
+
+  it("forwards only valid webview action messages to the host callback", async () => {
+    const receivedMessages: CommandVaultSidebarActionMessage[] = [];
+    let receiveMessage:
+      | ((message: unknown) => void | Promise<void>)
+      | undefined;
+    const provider = createCommandVaultSidebarProvider({
+      onDidReceiveMessage(message) {
+        receivedMessages.push(message);
+      },
+      repository: createRepositoryRecorder(),
+      workspace: {
+        workspaceFolders: undefined,
+      },
+    });
+    const webview = {
+      html: "",
+      onDidReceiveMessage(listener: (message: unknown) => void | Promise<void>) {
+        receiveMessage = listener;
+      },
+      options: {},
+    };
+
+    await provider.resolveWebviewView({ webview });
+    await receiveMessage?.({
+      type: "commandVault.action",
+      action: "run",
+      target: {
+        id: "global-1",
+        scope: "global",
+      },
+    });
+    await receiveMessage?.({
+      type: "commandVault.action",
+      action: "paste",
+      target: {
+        id: "global-1",
+        scope: "global",
+      },
+    });
+    await receiveMessage?.({
+      type: "commandVault.action",
+      action: "copy",
+      target: {
+        id: 7,
+        scope: "global",
+      },
+    });
+
+    assert.equal(webview.options.enableScripts, true);
+    assert.deepEqual(receivedMessages, [
+      {
+        type: "commandVault.action",
+        action: "run",
+        target: {
+          id: "global-1",
+          scope: "global",
+        },
+      },
+    ]);
   });
 
   it("loads both scopes into the sidebar provider before rendering", async () => {
@@ -47,14 +150,14 @@ describe("command vault sidebar", () => {
     });
     const webview = {
       html: "",
+      options: {},
     };
 
     await provider.resolveWebviewView({ webview });
 
-    assert.match(webview.html, /2 saved commands/);
-    assert.match(webview.html, /Workspace commands are loaded for this project\./);
-    assert.match(webview.html, /1 saved command/);
-    assert.match(webview.html, /Global commands are loaded across workspaces\./);
+    assert.match(webview.html, /workspace-1/);
+    assert.match(webview.html, /workspace-2/);
+    assert.match(webview.html, /global-1/);
     assert.equal(repository.readGlobalCommandsCalls, 1);
     assert.equal(repository.readWorkspaceCommandsCalls.length, 1);
   });
@@ -98,6 +201,7 @@ function createRepositoryRecorder({
 function createCommand(
   scope: "global" | "workspace",
   id: string,
+  overrides: Partial<CommandVaultCommand> = {},
 ): CommandVaultCommand {
   return {
     id,
@@ -107,5 +211,6 @@ function createCommand(
     description: null,
     createdAt: "2026-06-02T00:00:00.000Z",
     updatedAt: "2026-06-02T00:00:00.000Z",
+    ...overrides,
   };
 }

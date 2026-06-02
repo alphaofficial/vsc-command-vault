@@ -15,8 +15,10 @@
     "onStartupFinished",
     "onView:commandVault.commands",
     "onCommand:commandVault.createCommand",
+    "onCommand:commandVault.copyCommand",
     "onCommand:commandVault.editCommand",
-    "onCommand:commandVault.deleteCommand"
+    "onCommand:commandVault.deleteCommand",
+    "onCommand:commandVault.runCommand"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -45,6 +47,14 @@
       {
         "command": "commandVault.editCommand",
         "title": "Command Vault: Edit Command"
+      },
+      {
+        "command": "commandVault.copyCommand",
+        "title": "Command Vault: Copy Command"
+      },
+      {
+        "command": "commandVault.runCommand",
+        "title": "Command Vault: Run Command"
       },
       {
         "command": "commandVault.deleteCommand",

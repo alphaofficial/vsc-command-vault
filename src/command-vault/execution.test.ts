@@ -3,8 +3,11 @@ import { describe, it } from "node:test";
 
 import type { CommandVaultCommand } from "./model.ts";
 import {
+  COMMAND_VAULT_COPY_COMMAND_ID,
+  COMMAND_VAULT_RUN_COMMAND_ID,
   COMMAND_VAULT_TERMINAL_NAME,
   createCommandVaultExecutionService,
+  resolveStoredCommandForAction,
 } from "./execution.ts";
 
 const SAMPLE_COMMAND: CommandVaultCommand = {
@@ -18,6 +21,11 @@ const SAMPLE_COMMAND: CommandVaultCommand = {
 };
 
 describe("command vault execution service", () => {
+  it("exports stable execution command identifiers", () => {
+    assert.equal(COMMAND_VAULT_COPY_COMMAND_ID, "commandVault.copyCommand");
+    assert.equal(COMMAND_VAULT_RUN_COMMAND_ID, "commandVault.runCommand");
+  });
+
   it("reuses the active terminal and runs commands with a trailing newline", async () => {
     const terminalEvents = createTerminalRecorder();
     const execution = createCommandVaultExecutionService({
@@ -94,6 +102,68 @@ describe("command vault execution service", () => {
     await execution.copyCommand(SAMPLE_COMMAND);
 
     assert.deepEqual(clipboardWrites, ["npm run dev"]);
+  });
+
+  it("resolves stored commands by scope and warns when a workspace target is unavailable", async () => {
+    const warnings: string[] = [];
+    const storedGlobalCommand: CommandVaultCommand = {
+      ...SAMPLE_COMMAND,
+      id: "command_global_dev",
+      scope: "global",
+    };
+    const repository = {
+      async readGlobalCommands() {
+        return [storedGlobalCommand];
+      },
+      async readWorkspaceCommands() {
+        throw new Error("workspace commands should not be read");
+      },
+      async writeGlobalCommands() {},
+      async writeWorkspaceCommands() {},
+    };
+
+    const resolvedGlobalCommand = await resolveStoredCommandForAction(
+      "copy",
+      {
+        id: storedGlobalCommand.id,
+        scope: storedGlobalCommand.scope,
+      },
+      {
+        repository,
+        window: {
+          showWarningMessage(message) {
+            warnings.push(message);
+          },
+        },
+        workspace: {
+          workspaceFolders: undefined,
+        },
+      },
+    );
+    const resolvedWorkspaceCommand = await resolveStoredCommandForAction(
+      "run",
+      {
+        id: "workspace-missing",
+        scope: "workspace",
+      },
+      {
+        repository,
+        window: {
+          showWarningMessage(message) {
+            warnings.push(message);
+          },
+        },
+        workspace: {
+          workspaceFolders: undefined,
+        },
+      },
+    );
+
+    assert.deepEqual(resolvedGlobalCommand, storedGlobalCommand);
+    assert.equal(resolvedWorkspaceCommand, undefined);
+    assert.deepEqual(warnings, [
+      "Command Vault needs an open workspace to run workspace commands.",
+    ]);
   });
 });
 

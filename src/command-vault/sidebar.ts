@@ -1,4 +1,8 @@
-import { createWorkspaceId, type CommandVaultCommand } from "./model.ts";
+import {
+  createWorkspaceId,
+  isCommandVaultScope,
+  type CommandVaultCommand,
+} from "./model.ts";
 import type {
   CommandVaultWorkspace,
   CommandVaultWorkspaceFolder,
@@ -7,6 +11,12 @@ import type { CommandVaultRepository } from "./repository.ts";
 
 export interface CommandVaultWebview {
   html: string;
+  onDidReceiveMessage?(
+    listener: (message: unknown) => void | Promise<void>,
+  ): { dispose(): unknown } | void;
+  options?: {
+    enableScripts?: boolean;
+  };
 }
 
 export interface CommandVaultWebviewView {
@@ -20,6 +30,9 @@ export interface CommandVaultWebviewViewProvider {
 }
 
 export interface CreateCommandVaultSidebarProviderOptions {
+  onDidReceiveMessage?: (
+    message: CommandVaultSidebarActionMessage,
+  ) => void | Promise<void>;
   repository: CommandVaultRepository;
   workspace: CommandVaultWorkspace;
 }
@@ -28,6 +41,17 @@ export interface CommandVaultSidebarState {
   globalCommands: readonly CommandVaultCommand[];
   hasWorkspace: boolean;
   workspaceCommands: readonly CommandVaultCommand[];
+}
+
+export type CommandVaultSidebarAction = "copy" | "delete" | "edit" | "run";
+
+export interface CommandVaultSidebarActionMessage {
+  action: CommandVaultSidebarAction;
+  target: {
+    id: string;
+    scope: CommandVaultCommand["scope"];
+  };
+  type: "commandVault.action";
 }
 
 export function createCommandVaultSidebarProvider(
@@ -40,6 +64,19 @@ export function createCommandVaultSidebarProvider(
         options.workspace.workspaceFolders,
       );
 
+      webviewView.webview.options = {
+        ...webviewView.webview.options,
+        enableScripts: true,
+      };
+      webviewView.webview.onDidReceiveMessage?.(async (message) => {
+        const actionMessage = parseCommandVaultSidebarActionMessage(message);
+
+        if (!actionMessage || !options.onDidReceiveMessage) {
+          return;
+        }
+
+        await options.onDidReceiveMessage(actionMessage);
+      });
       webviewView.webview.html = renderCommandVaultSidebarHtml(state);
     },
   };
@@ -167,6 +204,81 @@ export function renderCommandVaultSidebarHtml(
         margin-bottom: 4px;
         font-size: 13px;
       }
+
+      .command-list {
+        display: grid;
+        gap: 12px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .command-card {
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent);
+      }
+
+      .command-copy-block {
+        display: grid;
+        gap: 8px;
+      }
+
+      .command-name {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .command-description {
+        margin: 0;
+        color: var(--vscode-descriptionForeground);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .command-text {
+        margin: 0;
+        padding: 10px 12px;
+        overflow-x: auto;
+        border-radius: 10px;
+        background: var(--vscode-textCodeBlock-background, color-mix(in srgb, var(--vscode-editor-background) 88%, black));
+        color: var(--vscode-textPreformat-foreground, var(--vscode-foreground));
+        font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
+        font-size: 12px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .command-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .command-action {
+        border: 1px solid var(--vscode-button-border, transparent);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+        color: var(--vscode-button-foreground);
+        background: var(--vscode-button-background);
+      }
+
+      .command-action.secondary {
+        color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
+        background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+      }
+
+      .command-action:hover {
+        background: var(--vscode-button-hoverBackground);
+      }
     </style>
   </head>
   <body>
@@ -180,61 +292,200 @@ export function renderCommandVaultSidebarHtml(
           <h2 class="section-title" id="workspace-heading">Workspace</h2>
           <p class="section-copy">Commands saved only for the open workspace.</p>
         </div>
-        <div class="section-state">
-          ${renderWorkspaceSectionState(state)}
-        </div>
+        ${renderWorkspaceSectionContent(state)}
       </section>
       <section class="section" aria-labelledby="global-heading">
         <div class="section-heading">
           <h2 class="section-title" id="global-heading">Global</h2>
           <p class="section-copy">Commands available from any workspace.</p>
         </div>
-        <div class="section-state">
-          ${renderGlobalSectionState(state.globalCommands)}
-        </div>
+        ${renderGlobalSectionContent(state.globalCommands)}
       </section>
     </main>
+    <script>
+      const vscode = acquireVsCodeApi();
+
+      document.addEventListener("click", (event) => {
+        const target = event.target;
+
+        if (!(target instanceof Element)) {
+          return;
+        }
+
+        const button = target.closest("[data-command-vault-action]");
+
+        if (!(button instanceof HTMLButtonElement)) {
+          return;
+        }
+
+        const action = button.dataset.commandVaultAction;
+        const id = button.dataset.commandId;
+        const scope = button.dataset.commandScope;
+
+        if (!action || !id || !scope) {
+          return;
+        }
+
+        vscode.postMessage({
+          type: "commandVault.action",
+          action,
+          target: {
+            id,
+            scope,
+          },
+        });
+      });
+    </script>
   </body>
 </html>`;
 }
 
-function renderWorkspaceSectionState(state: CommandVaultSidebarState): string {
+function renderWorkspaceSectionContent(state: CommandVaultSidebarState): string {
   if (!state.hasWorkspace) {
-    return [
-      "<strong>No workspace open</strong>",
-      "<span>Open a workspace folder to save workspace commands.</span>",
-    ].join("");
+    return renderSectionState(
+      "No workspace open",
+      "Open a workspace folder to save workspace commands.",
+    );
   }
 
   if (state.workspaceCommands.length === 0) {
-    return [
-      "<strong>No workspace commands yet</strong>",
-      "<span>Save workspace-only commands here for the current project.</span>",
-    ].join("");
+    return renderSectionState(
+      "No workspace commands yet",
+      "Save workspace-only commands here for the current project.",
+    );
   }
 
-  return [
-    `<strong>${formatCommandCount(state.workspaceCommands.length)}</strong>`,
-    "<span>Workspace commands are loaded for this project.</span>",
-  ].join("");
+  return renderCommandList(state.workspaceCommands);
 }
 
-function renderGlobalSectionState(
-  globalCommands: readonly CommandVaultCommand[],
+function renderGlobalSectionContent(
+  commands: readonly CommandVaultCommand[],
 ): string {
-  if (globalCommands.length === 0) {
-    return [
-      "<strong>No global commands yet</strong>",
-      "<span>Save reusable personal commands here.</span>",
-    ].join("");
+  if (commands.length === 0) {
+    return renderSectionState(
+      "No global commands yet",
+      "Save reusable personal commands here.",
+    );
   }
 
+  return renderCommandList(commands);
+}
+
+function renderSectionState(title: string, copy: string): string {
   return [
-    `<strong>${formatCommandCount(globalCommands.length)}</strong>`,
-    "<span>Global commands are loaded across workspaces.</span>",
+    '<div class="section-state">',
+    `<strong>${escapeHtml(title)}</strong>`,
+    `<span>${escapeHtml(copy)}</span>`,
+    "</div>",
   ].join("");
 }
 
-function formatCommandCount(commandCount: number): string {
-  return commandCount === 1 ? "1 saved command" : `${commandCount} saved commands`;
+function renderCommandList(commands: readonly CommandVaultCommand[]): string {
+  return [
+    '<ul class="command-list">',
+    commands.map((command) => renderCommandCard(command)).join(""),
+    "</ul>",
+  ].join("");
+}
+
+function renderCommandCard(command: CommandVaultCommand): string {
+  const description = command.description
+    ? `<p class="command-description">${escapeHtml(command.description)}</p>`
+    : "";
+
+  return [
+    '<li class="command-card">',
+    '<div class="command-copy-block">',
+    `<h3 class="command-name">${escapeHtml(command.name)}</h3>`,
+    description,
+    `<pre class="command-text">${escapeHtml(command.command)}</pre>`,
+    "</div>",
+    '<div class="command-actions" aria-label="Command actions">',
+    renderActionButton("Run", "run", command),
+    renderActionButton("Copy", "copy", command, "secondary"),
+    renderActionButton("Edit", "edit", command, "secondary"),
+    renderActionButton("Delete", "delete", command, "secondary"),
+    "</div>",
+    "</li>",
+  ].join("");
+}
+
+function renderActionButton(
+  label: string,
+  action: CommandVaultSidebarAction,
+  command: CommandVaultCommand,
+  variant?: "secondary",
+): string {
+  const className = variant
+    ? `command-action ${variant}`
+    : "command-action";
+
+  return [
+    `<button class="${className}"`,
+    ' type="button"',
+    ` data-command-vault-action="${escapeHtmlAttribute(action)}"`,
+    ` data-command-id="${escapeHtmlAttribute(command.id)}"`,
+    ` data-command-scope="${escapeHtmlAttribute(command.scope)}"`,
+    ` aria-label="${escapeHtmlAttribute(`${label} ${command.name}`)}">`,
+    escapeHtml(label),
+    "</button>",
+  ].join("");
+}
+
+function parseCommandVaultSidebarActionMessage(
+  value: unknown,
+): CommandVaultSidebarActionMessage | undefined {
+  if (!isPlainObject(value) || value.type !== "commandVault.action") {
+    return undefined;
+  }
+
+  const { action, target } = value;
+
+  if (
+    !isCommandVaultSidebarAction(action) ||
+    !isPlainObject(target) ||
+    typeof target.id !== "string" ||
+    !isCommandVaultScope(target.scope)
+  ) {
+    return undefined;
+  }
+
+  return {
+    type: "commandVault.action",
+    action,
+    target: {
+      id: target.id,
+      scope: target.scope,
+    },
+  };
+}
+
+function isCommandVaultSidebarAction(
+  value: unknown,
+): value is CommandVaultSidebarAction {
+  return (
+    value === "copy" ||
+    value === "delete" ||
+    value === "edit" ||
+    value === "run"
+  );
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return escapeHtml(value);
+}
+
+function isPlainObject(
+  value: unknown,
+): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

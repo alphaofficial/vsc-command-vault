@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, it } from "node:test";
 
 import {
   activate,
+  COMMAND_VAULT_COPY_COMMAND_ID,
   COMMAND_VAULT_CREATE_COMMAND_ID,
   COMMAND_VAULT_DELETE_COMMAND_ID,
   COMMAND_VAULT_EDIT_COMMAND_ID,
   COMMAND_VAULT_EXTENSION_NAME,
+  COMMAND_VAULT_RUN_COMMAND_ID,
   COMMAND_VAULT_VIEW_CONTAINER_ID,
   COMMAND_VAULT_VIEW_ID,
   deactivate,
@@ -17,12 +22,14 @@ describe("extension scaffold", () => {
     assert.equal(COMMAND_VAULT_EXTENSION_NAME, "Command Vault");
     assert.equal(COMMAND_VAULT_VIEW_CONTAINER_ID, "commandVault");
     assert.equal(COMMAND_VAULT_VIEW_ID, "commandVault.commands");
+    assert.equal(COMMAND_VAULT_COPY_COMMAND_ID, "commandVault.copyCommand");
     assert.equal(COMMAND_VAULT_CREATE_COMMAND_ID, "commandVault.createCommand");
     assert.equal(COMMAND_VAULT_EDIT_COMMAND_ID, "commandVault.editCommand");
     assert.equal(
       COMMAND_VAULT_DELETE_COMMAND_ID,
       "commandVault.deleteCommand",
     );
+    assert.equal(COMMAND_VAULT_RUN_COMMAND_ID, "commandVault.runCommand");
   });
 
   it("keeps activation hooks callable", () => {
@@ -30,24 +37,45 @@ describe("extension scaffold", () => {
     assert.doesNotThrow(() => deactivate());
   });
 
-  it("registers the sidebar provider and command handlers when activated", async () => {
+  it("registers the sidebar provider and routes sidebar actions to execution handlers", async () => {
+    const storagePath = await mkdtemp(join(tmpdir(), "command-vault-extension-"));
     const subscriptions: Array<{ dispose(): void }> = [];
     const registrations: string[] = [];
-    const webviewRegistrations: string[] = [];
+    const clipboardWrites: string[] = [];
+    const sendTextCalls: Array<{ addNewLine: boolean | undefined; text: string }> =
+      [];
+    const showCalls: Array<boolean | undefined> = [];
+    const warningMessages: string[] = [];
     let registeredProvider:
       | {
           resolveWebviewView(webviewView: {
             webview: {
               html: string;
+              onDidReceiveMessage?(
+                listener: (message: unknown) => void | Promise<void>,
+              ): void;
+              options?: {
+                enableScripts?: boolean;
+              };
             };
           }): void | Promise<void>;
         }
       | undefined;
+    let receiveMessage:
+      | ((message: unknown) => void | Promise<void>)
+      | undefined;
+
+    await mkdir(join(storagePath, "workspaces"), { recursive: true });
+    await writeFile(
+      join(storagePath, "global.json"),
+      `${JSON.stringify([createStoredCommand()], null, 2)}\n`,
+      { encoding: "utf8" },
+    );
 
     activate(
       {
         globalStorageUri: {
-          fsPath: "/tmp/command-vault-storage",
+          fsPath: storagePath,
         },
         subscriptions: {
           push(...items) {
@@ -67,14 +95,30 @@ describe("extension scaffold", () => {
             };
           },
         },
+        env: {
+          clipboard: {
+            async writeText(text) {
+              clipboardWrites.push(text);
+            },
+          },
+        },
         window: {
+          activeTerminal: {
+            sendText(text, addNewLine) {
+              sendTextCalls.push({ text, addNewLine });
+            },
+            show(preserveFocus) {
+              showCalls.push(preserveFocus);
+            },
+          },
+          createTerminal() {
+            throw new Error("active terminal should be reused");
+          },
           registerWebviewViewProvider(viewId, provider) {
-            webviewRegistrations.push(viewId);
+            assert.equal(viewId, COMMAND_VAULT_VIEW_ID);
             registeredProvider = provider;
             return {
-              dispose() {
-                webviewRegistrations.push("disposed");
-              },
+              dispose() {},
             };
           },
           async showInputBox() {
@@ -83,7 +127,8 @@ describe("extension scaffold", () => {
           async showQuickPick(items) {
             return items[0];
           },
-          showWarningMessage() {
+          showWarningMessage(message) {
+            warningMessages.push(message);
             return undefined;
           },
         },
@@ -95,18 +140,60 @@ describe("extension scaffold", () => {
 
     const webview = {
       html: "",
+      onDidReceiveMessage(listener: (message: unknown) => void | Promise<void>) {
+        receiveMessage = listener;
+      },
+      options: {},
     };
 
     await registeredProvider?.resolveWebviewView({ webview });
+    await receiveMessage?.({
+      type: "commandVault.action",
+      action: "copy",
+      target: {
+        id: "global-1",
+        scope: "global",
+      },
+    });
+    await receiveMessage?.({
+      type: "commandVault.action",
+      action: "run",
+      target: {
+        id: "global-1",
+        scope: "global",
+      },
+    });
 
     assert.deepEqual(registrations, [
       COMMAND_VAULT_CREATE_COMMAND_ID,
       COMMAND_VAULT_EDIT_COMMAND_ID,
       COMMAND_VAULT_DELETE_COMMAND_ID,
+      COMMAND_VAULT_RUN_COMMAND_ID,
+      COMMAND_VAULT_COPY_COMMAND_ID,
     ]);
-    assert.deepEqual(webviewRegistrations, [COMMAND_VAULT_VIEW_ID]);
-    assert.match(webview.html, /Workspace/);
-    assert.match(webview.html, /Global/);
-    assert.equal(subscriptions.length, 4);
+    assert.equal(webview.options.enableScripts, true);
+    assert.match(webview.html, /data-command-vault-action="run"/);
+    assert.deepEqual(clipboardWrites, ["npm run dev"]);
+    assert.deepEqual(showCalls, [false]);
+    assert.deepEqual(sendTextCalls, [
+      {
+        text: "npm run dev",
+        addNewLine: true,
+      },
+    ]);
+    assert.deepEqual(warningMessages, []);
+    assert.equal(subscriptions.length, 6);
   });
 });
+
+function createStoredCommand() {
+  return {
+    id: "global-1",
+    scope: "global",
+    name: "Start app",
+    command: "npm run dev",
+    description: "Run the dev server",
+    createdAt: "2026-06-02T00:00:00.000Z",
+    updatedAt: "2026-06-02T00:00:00.000Z",
+  };
+}
