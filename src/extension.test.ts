@@ -401,6 +401,285 @@ describe("extension scaffold", () => {
     assert.deepEqual(warningMessages, []);
     assert.equal(quickPick.showCalls, 3);
   });
+
+  it("refreshes the sidebar when command vault settings change", async () => {
+    const storagePath = await mkdtemp(join(tmpdir(), "command-vault-settings-"));
+    const configurationState = {
+      defaultExecutionBehavior: "run" as const,
+      enableGlobalScope: true,
+      enableWorkspaceScope: true,
+    };
+    let registeredProvider:
+      | {
+          resolveWebviewView(webviewView: {
+            webview: {
+              html: string;
+              onDidReceiveMessage?(
+                listener: (message: unknown) => void | Promise<void>,
+              ): void;
+              options?: {
+                enableScripts?: boolean;
+              };
+            };
+          }): void | Promise<void>;
+        }
+      | undefined;
+    let changeConfigurationListener:
+      | ((event: { affectsConfiguration(section: string): boolean }) => void | Promise<void>)
+      | undefined;
+
+    await mkdir(join(storagePath, "workspaces"), { recursive: true });
+    await writeFile(
+      join(storagePath, "global.json"),
+      `${JSON.stringify([createStoredCommand()], null, 2)}\n`,
+      { encoding: "utf8" },
+    );
+
+    activate(
+      {
+        globalStorageUri: {
+          fsPath: storagePath,
+        },
+        subscriptions: {
+          push(...items) {
+            return items.length;
+          },
+        },
+      },
+      {
+        commands: {
+          registerCommand() {
+            return {
+              dispose() {},
+            };
+          },
+        },
+        env: {
+          clipboard: {
+            async writeText() {},
+          },
+        },
+        window: {
+          activeTerminal: undefined,
+          createTerminal() {
+            throw new Error("createTerminal should not be used");
+          },
+          registerWebviewViewProvider(_viewId, provider) {
+            registeredProvider = provider;
+            return {
+              dispose() {},
+            };
+          },
+          createQuickPick() {
+            throw new Error("search should not be used");
+          },
+          async showInputBox() {
+            return undefined;
+          },
+          async showQuickPick() {
+            return undefined;
+          },
+          showWarningMessage() {
+            return undefined;
+          },
+        },
+        workspace: {
+          getConfiguration() {
+            return {
+              get(key, defaultValue) {
+                switch (key) {
+                  case "defaultExecutionBehavior":
+                    return configurationState.defaultExecutionBehavior;
+                  case "enableGlobalScope":
+                    return configurationState.enableGlobalScope;
+                  case "enableWorkspaceScope":
+                    return configurationState.enableWorkspaceScope;
+                  default:
+                    return defaultValue;
+                }
+              },
+            };
+          },
+          onDidChangeConfiguration(listener) {
+            changeConfigurationListener = listener;
+            return {
+              dispose() {},
+            };
+          },
+          workspaceFolders: undefined,
+        },
+      },
+    );
+
+    const webview = {
+      html: "",
+      onDidReceiveMessage() {},
+      options: {},
+    };
+
+    await registeredProvider?.resolveWebviewView({ webview });
+    assert.match(webview.html, />Start app</);
+    assert.doesNotMatch(webview.html, /Global commands disabled/);
+
+    configurationState.enableGlobalScope = false;
+    await changeConfigurationListener?.({
+      affectsConfiguration(section) {
+        return section === "commandVault";
+      },
+    });
+
+    assert.doesNotMatch(webview.html, />Start app</);
+    assert.match(webview.html, /Global commands disabled/);
+  });
+
+  it("blocks quick-pick execution when the selected scope becomes disabled", async () => {
+    const storagePath = await mkdtemp(join(tmpdir(), "command-vault-search-"));
+    const commandCallbacks = new Map<string, (...args: unknown[]) => unknown>();
+    const configurationState = {
+      defaultExecutionBehavior: "paste" as const,
+      enableGlobalScope: true,
+      enableWorkspaceScope: true,
+    };
+    const sendTextCalls: Array<{ addNewLine: boolean | undefined; text: string }> =
+      [];
+    const warningMessages: string[] = [];
+    const quickPick = createQuickPickHarness();
+    let registeredProvider:
+      | {
+          resolveWebviewView(webviewView: {
+            webview: {
+              html: string;
+              onDidReceiveMessage?(
+                listener: (message: unknown) => void | Promise<void>,
+              ): void;
+              options?: {
+                enableScripts?: boolean;
+              };
+            };
+          }): void | Promise<void>;
+        }
+      | undefined;
+
+    await mkdir(join(storagePath, "workspaces"), { recursive: true });
+    await writeFile(
+      join(storagePath, "global.json"),
+      `${JSON.stringify([createStoredCommand()], null, 2)}\n`,
+      { encoding: "utf8" },
+    );
+
+    activate(
+      {
+        globalStorageUri: {
+          fsPath: storagePath,
+        },
+        subscriptions: {
+          push(...items) {
+            return items.length;
+          },
+        },
+      },
+      {
+        commands: {
+          executeCommand() {
+            return undefined;
+          },
+          registerCommand(command, callback) {
+            commandCallbacks.set(command, callback);
+            return {
+              dispose() {},
+            };
+          },
+        },
+        env: {
+          clipboard: {
+            async writeText() {},
+          },
+        },
+        window: {
+          activeTerminal: {
+            sendText(text, addNewLine) {
+              sendTextCalls.push({ text, addNewLine });
+            },
+            show() {},
+          },
+          createTerminal() {
+            throw new Error("active terminal should be reused");
+          },
+          registerWebviewViewProvider(_viewId, provider) {
+            registeredProvider = provider;
+            return {
+              dispose() {},
+            };
+          },
+          createQuickPick() {
+            return quickPick.instance;
+          },
+          async showInputBox() {
+            return undefined;
+          },
+          async showQuickPick(items) {
+            return items[0];
+          },
+          showWarningMessage(message) {
+            warningMessages.push(message);
+            return undefined;
+          },
+        },
+        workspace: {
+          getConfiguration() {
+            return {
+              get(key, defaultValue) {
+                switch (key) {
+                  case "defaultExecutionBehavior":
+                    return configurationState.defaultExecutionBehavior;
+                  case "enableGlobalScope":
+                    return configurationState.enableGlobalScope;
+                  case "enableWorkspaceScope":
+                    return configurationState.enableWorkspaceScope;
+                  default:
+                    return defaultValue;
+                }
+              },
+            };
+          },
+          workspaceFolders: undefined,
+        },
+      },
+    );
+
+    const webview = {
+      html: "",
+      onDidReceiveMessage() {},
+      options: {},
+    };
+
+    await registeredProvider?.resolveWebviewView({ webview });
+
+    const pasteSearchPromise = commandCallbacks.get(
+      COMMAND_VAULT_SEARCH_COMMAND_ID,
+    )?.();
+    await waitForQuickPickShow(quickPick, 1);
+    configurationState.enableGlobalScope = false;
+    await quickPick.accept();
+    await pasteSearchPromise;
+
+    configurationState.enableGlobalScope = true;
+    const runSearchPromise = commandCallbacks.get(
+      COMMAND_VAULT_SEARCH_COMMAND_ID,
+    )?.();
+    await waitForQuickPickShow(quickPick, 2);
+    configurationState.enableGlobalScope = false;
+    await commandCallbacks.get(
+      "commandVault.searchCommands.alternateExecution",
+    )?.();
+    await runSearchPromise;
+
+    assert.deepEqual(sendTextCalls, []);
+    assert.deepEqual(warningMessages, [
+      "Command Vault global commands are disabled in settings.",
+      "Command Vault global commands are disabled in settings.",
+    ]);
+  });
 });
 
 function createStoredCommand() {

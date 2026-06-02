@@ -23,6 +23,7 @@ import {
   createCommandVaultSearchService,
 } from "./command-vault/search-command.ts";
 import {
+  COMMAND_VAULT_CONFIGURATION_SECTION,
   isCommandVaultScopeEnabled,
   readCommandVaultSettings,
 } from "./command-vault/settings.ts";
@@ -133,6 +134,11 @@ export interface CommandVaultExtensionHost {
     getConfiguration?(section: string): {
       get<T>(section: string, defaultValue: T): T;
     };
+    onDidChangeConfiguration?(
+      listener: (event: {
+        affectsConfiguration(section: string): boolean;
+      }) => void | Promise<void>,
+    ): CommandVaultExtensionDisposable;
     workspaceFolders:
       | ReadonlyArray<{
           uri: {
@@ -311,9 +317,17 @@ export function activate(
         });
         return;
       case "paste":
+        if (!(await validateScopeEnabled(selection.command.scope))) {
+          return;
+        }
+
         await execution.pasteCommand(selection.command);
         return;
       case "run":
+        if (!(await validateScopeEnabled(selection.command.scope))) {
+          return;
+        }
+
         await execution.runCommand(selection.command);
         return;
     }
@@ -374,6 +388,14 @@ export function activate(
     COMMAND_VAULT_VIEW_ID,
     sidebarProvider,
   );
+  const configurationChangeDisposable =
+    resolvedHost.workspace.onDidChangeConfiguration?.(async (event) => {
+      if (!event.affectsConfiguration(COMMAND_VAULT_CONFIGURATION_SECTION)) {
+        return;
+      }
+
+      await refreshSidebar();
+    });
 
   context.subscriptions.push(
     createCommandDisposable,
@@ -386,6 +408,7 @@ export function activate(
     searchAlternateExecutionDisposable,
     searchEditCommandDisposable,
     sidebarDisposable,
+    ...(configurationChangeDisposable ? [configurationChangeDisposable] : []),
   );
 }
 
