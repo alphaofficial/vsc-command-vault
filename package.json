@@ -16,11 +16,11 @@
   ],
   "main": "./out/extension.js",
   "scripts": {
-    "build": "tsc -p ./tsconfig.json",
+    "build": "node ./scripts/build.mjs",
     "compile": "npm run build",
     "clean": "rm -rf out coverage",
     "test": "node --test ./test/**/*.test.js",
-    "test:vitest": "vitest run"
+    "test:vitest": "node --no-warnings --test --experimental-strip-types ./src/extension.test.ts ./src/command-vault/model.test.ts ./src/command-vault/repository.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.1",

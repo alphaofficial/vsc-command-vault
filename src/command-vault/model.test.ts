@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 
 import {
   COMMAND_VAULT_GLOBAL_STORAGE_FILE,
@@ -8,28 +9,28 @@ import {
   isCommandVaultScope,
   validateCommandRecord,
   validatePersistedCommandRecords,
-} from "./model";
+} from "./model.ts";
 
 describe("command vault model", () => {
   it("derives stable workspace storage identifiers and paths", () => {
     const workspacePath = "/Users/albertmacmini/Developer/personal/vsc-snippet-catalog";
     const workspaceId = createWorkspaceId(workspacePath);
 
-    expect(workspaceId).toMatch(/^[a-f0-9]{64}$/u);
-    expect(createWorkspaceId(workspacePath)).toBe(workspaceId);
-    expect(createWorkspaceId(`${workspacePath}-copy`)).not.toBe(workspaceId);
-    expect(COMMAND_VAULT_GLOBAL_STORAGE_FILE).toBe("global.json");
-    expect(COMMAND_VAULT_WORKSPACES_STORAGE_DIR).toBe("workspaces");
-    expect(getWorkspaceStorageFilePath(workspaceId)).toBe(
+    assert.match(workspaceId, /^[a-f0-9]{64}$/u);
+    assert.equal(createWorkspaceId(workspacePath), workspaceId);
+    assert.notEqual(createWorkspaceId(`${workspacePath}-copy`), workspaceId);
+    assert.equal(COMMAND_VAULT_GLOBAL_STORAGE_FILE, "global.json");
+    assert.equal(COMMAND_VAULT_WORKSPACES_STORAGE_DIR, "workspaces");
+    assert.equal(getWorkspaceStorageFilePath(workspaceId),
       `workspaces/${workspaceId}.json`,
     );
   });
 
   it("accepts only the MVP command scopes", () => {
-    expect(isCommandVaultScope("global")).toBe(true);
-    expect(isCommandVaultScope("workspace")).toBe(true);
-    expect(isCommandVaultScope("user")).toBe(false);
-    expect(isCommandVaultScope("team")).toBe(false);
+    assert.equal(isCommandVaultScope("global"), true);
+    assert.equal(isCommandVaultScope("workspace"), true);
+    assert.equal(isCommandVaultScope("user"), false);
+    assert.equal(isCommandVaultScope("team"), false);
   });
 
   it("accepts a persisted command that matches the simplified MVP shape", () => {
@@ -44,7 +45,7 @@ describe("command vault model", () => {
       folderId: "ignored-legacy-field",
     });
 
-    expect(result).toEqual({
+    assert.deepEqual(result, {
       ok: true,
       value: {
         id: "command_api_dev",
@@ -91,9 +92,9 @@ describe("command vault model", () => {
       "not-an-object",
     ]);
 
-    expect(result.valid).toHaveLength(1);
-    expect(result.valid[0]?.id).toBe("command_valid");
-    expect(result.issues).toEqual([
+    assert.equal(result.valid.length, 1);
+    assert.equal(result.valid[0]?.id, "command_valid");
+    assert.deepEqual(result.issues, [
       {
         path: "commands[1].scope",
         message: "must be either 'global' or 'workspace'",

@@ -1,20 +1,21 @@
-import { describe, expect, it } from "vitest";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 
 import {
   activate,
   COMMAND_VAULT_EXTENSION_NAME,
   COMMAND_VAULT_VIEW_ID,
   deactivate,
-} from "./extension";
+} from "./extension.ts";
 
 describe("extension scaffold", () => {
   it("exports stable baseline identifiers", () => {
-    expect(COMMAND_VAULT_EXTENSION_NAME).toBe("Command Vault");
-    expect(COMMAND_VAULT_VIEW_ID).toBe("commandVault.commands");
+    assert.equal(COMMAND_VAULT_EXTENSION_NAME, "Command Vault");
+    assert.equal(COMMAND_VAULT_VIEW_ID, "commandVault.commands");
   });
 
   it("keeps activation hooks callable", () => {
-    expect(() => activate()).not.toThrow();
-    expect(() => deactivate()).not.toThrow();
+    assert.doesNotThrow(() => activate());
+    assert.doesNotThrow(() => deactivate());
   });
 });
