@@ -7,6 +7,7 @@ import {
   COMMAND_VAULT_DELETE_COMMAND_ID,
   COMMAND_VAULT_EDIT_COMMAND_ID,
   COMMAND_VAULT_EXTENSION_NAME,
+  COMMAND_VAULT_VIEW_CONTAINER_ID,
   COMMAND_VAULT_VIEW_ID,
   deactivate,
 } from "./extension.ts";
@@ -14,6 +15,7 @@ import {
 describe("extension scaffold", () => {
   it("exports stable baseline identifiers", () => {
     assert.equal(COMMAND_VAULT_EXTENSION_NAME, "Command Vault");
+    assert.equal(COMMAND_VAULT_VIEW_CONTAINER_ID, "commandVault");
     assert.equal(COMMAND_VAULT_VIEW_ID, "commandVault.commands");
     assert.equal(COMMAND_VAULT_CREATE_COMMAND_ID, "commandVault.createCommand");
     assert.equal(COMMAND_VAULT_EDIT_COMMAND_ID, "commandVault.editCommand");
@@ -28,9 +30,19 @@ describe("extension scaffold", () => {
     assert.doesNotThrow(() => deactivate());
   });
 
-  it("registers the create, edit, and delete commands when activated", () => {
+  it("registers the sidebar provider and command handlers when activated", async () => {
     const subscriptions: Array<{ dispose(): void }> = [];
     const registrations: string[] = [];
+    const webviewRegistrations: string[] = [];
+    let registeredProvider:
+      | {
+          resolveWebviewView(webviewView: {
+            webview: {
+              html: string;
+            };
+          }): void | Promise<void>;
+        }
+      | undefined;
 
     activate(
       {
@@ -56,6 +68,15 @@ describe("extension scaffold", () => {
           },
         },
         window: {
+          registerWebviewViewProvider(viewId, provider) {
+            webviewRegistrations.push(viewId);
+            registeredProvider = provider;
+            return {
+              dispose() {
+                webviewRegistrations.push("disposed");
+              },
+            };
+          },
           async showInputBox() {
             return undefined;
           },
@@ -72,11 +93,20 @@ describe("extension scaffold", () => {
       },
     );
 
+    const webview = {
+      html: "",
+    };
+
+    await registeredProvider?.resolveWebviewView({ webview });
+
     assert.deepEqual(registrations, [
       COMMAND_VAULT_CREATE_COMMAND_ID,
       COMMAND_VAULT_EDIT_COMMAND_ID,
       COMMAND_VAULT_DELETE_COMMAND_ID,
     ]);
-    assert.equal(subscriptions.length, 3);
+    assert.deepEqual(webviewRegistrations, [COMMAND_VAULT_VIEW_ID]);
+    assert.match(webview.html, /Workspace/);
+    assert.match(webview.html, /Global/);
+    assert.equal(subscriptions.length, 4);
   });
 });

@@ -7,12 +7,14 @@ const {
   COMMAND_VAULT_DELETE_COMMAND_ID,
   COMMAND_VAULT_EDIT_COMMAND_ID,
   COMMAND_VAULT_EXTENSION_NAME,
+  COMMAND_VAULT_VIEW_CONTAINER_ID,
   COMMAND_VAULT_VIEW_ID,
   deactivate,
 } = require("../out/extension.js");
 
 test("compiled extension exports the scaffold identifiers", () => {
   assert.equal(COMMAND_VAULT_EXTENSION_NAME, "Command Vault");
+  assert.equal(COMMAND_VAULT_VIEW_CONTAINER_ID, "commandVault");
   assert.equal(COMMAND_VAULT_VIEW_ID, "commandVault.commands");
   assert.equal(COMMAND_VAULT_CREATE_COMMAND_ID, "commandVault.createCommand");
   assert.equal(COMMAND_VAULT_EDIT_COMMAND_ID, "commandVault.editCommand");
@@ -24,9 +26,11 @@ test("compiled activation hooks are callable", () => {
   assert.doesNotThrow(() => deactivate());
 });
 
-test("compiled activation registers the create, edit, and delete commands", () => {
+test("compiled activation registers the sidebar provider and command handlers", async () => {
   const subscriptions = [];
   const registrations = [];
+  const webviewRegistrations = [];
+  let registeredProvider;
 
   activate(
     {
@@ -52,6 +56,15 @@ test("compiled activation registers the create, edit, and delete commands", () =
         },
       },
       window: {
+        registerWebviewViewProvider(viewId, provider) {
+          webviewRegistrations.push(viewId);
+          registeredProvider = provider;
+          return {
+            dispose() {
+              webviewRegistrations.push("disposed");
+            },
+          };
+        },
         async showInputBox() {
           return undefined;
         },
@@ -68,10 +81,19 @@ test("compiled activation registers the create, edit, and delete commands", () =
     },
   );
 
+  const webview = {
+    html: "",
+  };
+
+  await registeredProvider.resolveWebviewView({ webview });
+
   assert.deepEqual(registrations, [
     COMMAND_VAULT_CREATE_COMMAND_ID,
     COMMAND_VAULT_EDIT_COMMAND_ID,
     COMMAND_VAULT_DELETE_COMMAND_ID,
   ]);
-  assert.equal(subscriptions.length, 3);
+  assert.deepEqual(webviewRegistrations, [COMMAND_VAULT_VIEW_ID]);
+  assert.match(webview.html, /Workspace/);
+  assert.match(webview.html, /Global/);
+  assert.equal(subscriptions.length, 4);
 });

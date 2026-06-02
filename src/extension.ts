@@ -9,6 +9,7 @@ import {
   createCommandVaultEditDeleteService,
 } from "./command-vault/edit-delete-command.ts";
 import { createCommandVaultRepository } from "./command-vault/repository.ts";
+import { createCommandVaultSidebarProvider } from "./command-vault/sidebar.ts";
 
 export {
   COMMAND_VAULT_CREATE_COMMAND_ID,
@@ -16,6 +17,7 @@ export {
   COMMAND_VAULT_EDIT_COMMAND_ID,
 };
 
+export const COMMAND_VAULT_VIEW_CONTAINER_ID = "commandVault";
 export const COMMAND_VAULT_VIEW_ID = "commandVault.commands";
 export const COMMAND_VAULT_EXTENSION_NAME = "Command Vault";
 
@@ -40,6 +42,16 @@ export interface CommandVaultExtensionHost {
     ): CommandVaultExtensionDisposable;
   };
   window: {
+    registerWebviewViewProvider(
+      viewId: string,
+      provider: {
+        resolveWebviewView(webviewView: {
+          webview: {
+            html: string;
+          };
+        }): void | Promise<void>;
+      },
+    ): CommandVaultExtensionDisposable;
     showInputBox(options: {
       placeHolder?: string;
       prompt?: string;
@@ -90,6 +102,10 @@ export function activate(
     window: resolvedHost.window,
     workspace: resolvedHost.workspace,
   });
+  const sidebarProvider = createCommandVaultSidebarProvider({
+    repository,
+    workspace: resolvedHost.workspace,
+  });
   const createCommandDisposable = resolvedHost.commands.registerCommand(
     COMMAND_VAULT_CREATE_COMMAND_ID,
     async (requestedScope?: CommandVaultScope) => {
@@ -108,11 +124,16 @@ export function activate(
       await editDeleteCommand.deleteCommand(target);
     },
   );
+  const sidebarDisposable = resolvedHost.window.registerWebviewViewProvider(
+    COMMAND_VAULT_VIEW_ID,
+    sidebarProvider,
+  );
 
   context.subscriptions.push(
     createCommandDisposable,
     editCommandDisposable,
     deleteCommandDisposable,
+    sidebarDisposable,
   );
 }
 

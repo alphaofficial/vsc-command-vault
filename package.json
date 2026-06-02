@@ -13,12 +13,30 @@
   ],
   "activationEvents": [
     "onStartupFinished",
+    "onView:commandVault.commands",
     "onCommand:commandVault.createCommand",
     "onCommand:commandVault.editCommand",
     "onCommand:commandVault.deleteCommand"
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "commandVault",
+          "title": "Command Vault",
+          "icon": "resources/command-vault.svg"
+        }
+      ]
+    },
+    "views": {
+      "commandVault": [
+        {
+          "id": "commandVault.commands",
+          "name": "Commands"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "commandVault.createCommand",
@@ -39,7 +57,7 @@
     "compile": "npm run build",
     "clean": "rm -rf out coverage",
     "test": "node --test ./test/**/*.test.js",
-    "test:vitest": "node --no-warnings --test --experimental-strip-types ./src/extension.test.ts ./src/command-vault/model.test.ts ./src/command-vault/repository.test.ts ./src/command-vault/execution.test.ts ./src/command-vault/create-command.test.ts ./src/command-vault/edit-delete-command.test.ts"
+    "test:vitest": "node --no-warnings --test --experimental-strip-types ./src/extension.test.ts ./src/command-vault/model.test.ts ./src/command-vault/repository.test.ts ./src/command-vault/execution.test.ts ./src/command-vault/create-command.test.ts ./src/command-vault/edit-delete-command.test.ts ./src/command-vault/sidebar.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.1",
