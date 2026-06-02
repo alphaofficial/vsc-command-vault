@@ -208,6 +208,7 @@ describe("extension scaffold", () => {
       COMMAND_VAULT_COPY_COMMAND_ID,
       COMMAND_VAULT_SEARCH_COMMAND_ID,
       "commandVault.searchCommands.paste",
+      "commandVault.searchCommands.alternateExecution",
       "commandVault.searchCommands.edit",
     ]);
     assert.equal(webview.options.enableScripts, true);
@@ -223,7 +224,7 @@ describe("extension scaffold", () => {
       },
     ]);
     assert.deepEqual(warningMessages, []);
-    assert.equal(subscriptions.length, 9);
+    assert.equal(subscriptions.length, 10);
   });
 
   it("routes quick-pick search run, paste, and edit actions", async () => {
@@ -320,6 +321,15 @@ describe("extension scaffold", () => {
           },
         },
         workspace: {
+          getConfiguration() {
+            return {
+              get(key, defaultValue) {
+                return key === "defaultExecutionBehavior"
+                  ? "paste"
+                  : defaultValue;
+              },
+            };
+          },
           workspaceFolders: undefined,
         },
       },
@@ -340,12 +350,14 @@ describe("extension scaffold", () => {
     await quickPick.accept();
     await runSearchPromise;
 
-    const pasteSearchPromise = commandCallbacks.get(
+    const alternateSearchPromise = commandCallbacks.get(
       COMMAND_VAULT_SEARCH_COMMAND_ID,
     )?.();
     await waitForQuickPickShow(quickPick, 2);
-    await commandCallbacks.get("commandVault.searchCommands.paste")?.();
-    await pasteSearchPromise;
+    await commandCallbacks.get(
+      "commandVault.searchCommands.alternateExecution",
+    )?.();
+    await alternateSearchPromise;
 
     const editSearchPromise = commandCallbacks.get(
       COMMAND_VAULT_SEARCH_COMMAND_ID,
@@ -361,11 +373,11 @@ describe("extension scaffold", () => {
     assert.deepEqual(sendTextCalls, [
       {
         text: "npm run dev",
-        addNewLine: true,
+        addNewLine: false,
       },
       {
         text: "npm run dev",
-        addNewLine: false,
+        addNewLine: true,
       },
     ]);
     assert.match(webview.html, />Preview app</);

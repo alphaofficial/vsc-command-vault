@@ -8,6 +8,10 @@ import type {
   CommandVaultWorkspaceFolder,
 } from "./create-command.ts";
 import type { CommandVaultRepository } from "./repository.ts";
+import {
+  DEFAULT_COMMAND_VAULT_SETTINGS,
+  type CommandVaultSettings,
+} from "./settings.ts";
 
 export interface CommandVaultWebview {
   html: string;
@@ -35,6 +39,7 @@ export interface CommandVaultSidebarController
 }
 
 export interface CreateCommandVaultSidebarProviderOptions {
+  getSettings?: () => CommandVaultSettings;
   onDidReceiveMessage?: (
     message: CommandVaultSidebarActionMessage,
   ) => void | Promise<void>;
@@ -43,6 +48,8 @@ export interface CreateCommandVaultSidebarProviderOptions {
 }
 
 export interface CommandVaultSidebarState {
+  enableGlobalScope: boolean;
+  enableWorkspaceScope: boolean;
   globalCommands: readonly CommandVaultCommand[];
   hasWorkspace: boolean;
   workspaceCommands: readonly CommandVaultCommand[];
@@ -69,9 +76,11 @@ export function createCommandVaultSidebarProvider(
       return;
     }
 
+    const settings = options.getSettings?.() ?? DEFAULT_COMMAND_VAULT_SETTINGS;
     const state = await loadCommandVaultSidebarState(
       options.repository,
       options.workspace.workspaceFolders,
+      settings,
     );
 
     activeWebviewView.webview.html = renderCommandVaultSidebarHtml(state);
@@ -103,15 +112,32 @@ export function createCommandVaultSidebarProvider(
 export async function loadCommandVaultSidebarState(
   repository: CommandVaultRepository,
   workspaceFolders: readonly CommandVaultWorkspaceFolder[] | undefined,
+  settings: CommandVaultSettings = DEFAULT_COMMAND_VAULT_SETTINGS,
 ): Promise<CommandVaultSidebarState> {
   const workspaceFolderPath = workspaceFolders?.[0]?.uri.fsPath;
-  const globalCommandsPromise = repository.readGlobalCommands();
+  const globalCommandsPromise = settings.enableGlobalScope
+    ? repository.readGlobalCommands()
+    : Promise.resolve([]);
 
   if (!workspaceFolderPath) {
     const globalCommands = await globalCommandsPromise;
 
     return {
+      enableGlobalScope: settings.enableGlobalScope,
+      enableWorkspaceScope: settings.enableWorkspaceScope,
       hasWorkspace: false,
+      workspaceCommands: [],
+      globalCommands,
+    };
+  }
+
+  if (!settings.enableWorkspaceScope) {
+    const globalCommands = await globalCommandsPromise;
+
+    return {
+      enableGlobalScope: settings.enableGlobalScope,
+      enableWorkspaceScope: false,
+      hasWorkspace: true,
       workspaceCommands: [],
       globalCommands,
     };
@@ -124,6 +150,8 @@ export async function loadCommandVaultSidebarState(
   ]);
 
   return {
+    enableGlobalScope: settings.enableGlobalScope,
+    enableWorkspaceScope: settings.enableWorkspaceScope,
     hasWorkspace: true,
     workspaceCommands,
     globalCommands,
@@ -317,7 +345,7 @@ export function renderCommandVaultSidebarHtml(
           <h2 class="section-title" id="global-heading">Global</h2>
           <p class="section-copy">Commands available from any workspace.</p>
         </div>
-        ${renderGlobalSectionContent(state.globalCommands)}
+        ${renderGlobalSectionContent(state)}
       </section>
     </main>
     <script>
@@ -359,6 +387,13 @@ export function renderCommandVaultSidebarHtml(
 }
 
 function renderWorkspaceSectionContent(state: CommandVaultSidebarState): string {
+  if (!state.enableWorkspaceScope) {
+    return renderSectionState(
+      "Workspace commands disabled",
+      "Enable the workspace scope setting to view workspace commands.",
+    );
+  }
+
   if (!state.hasWorkspace) {
     return renderSectionState(
       "No workspace open",
@@ -377,16 +412,23 @@ function renderWorkspaceSectionContent(state: CommandVaultSidebarState): string 
 }
 
 function renderGlobalSectionContent(
-  commands: readonly CommandVaultCommand[],
+  state: CommandVaultSidebarState,
 ): string {
-  if (commands.length === 0) {
+  if (!state.enableGlobalScope) {
+    return renderSectionState(
+      "Global commands disabled",
+      "Enable the global scope setting to view global commands.",
+    );
+  }
+
+  if (state.globalCommands.length === 0) {
     return renderSectionState(
       "No global commands yet",
       "Save reusable personal commands here.",
     );
   }
 
-  return renderCommandList(commands);
+  return renderCommandList(state.globalCommands);
 }
 
 function renderSectionState(title: string, copy: string): string {

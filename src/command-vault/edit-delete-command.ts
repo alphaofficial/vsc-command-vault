@@ -1,6 +1,11 @@
 import type { CommandVaultCommand, CommandVaultScope } from "./model.ts";
 import { createWorkspaceId } from "./model.ts";
 import type { CommandVaultRepository } from "./repository.ts";
+import {
+  DEFAULT_COMMAND_VAULT_SETTINGS,
+  isCommandVaultScopeEnabled,
+  type CommandVaultSettings,
+} from "./settings.ts";
 
 import type {
   CommandVaultQuickPickItem,
@@ -18,6 +23,7 @@ export interface CommandVaultCommandTarget {
 }
 
 export interface CreateCommandVaultEditDeleteServiceOptions {
+  getSettings?: () => CommandVaultSettings;
   now?: () => string;
   repository: CommandVaultRepository;
   window: CommandVaultWindow;
@@ -59,10 +65,12 @@ export function createCommandVaultEditDeleteService(
 
   return {
     async editCommand(target) {
+      const settings = options.getSettings?.() ?? DEFAULT_COMMAND_VAULT_SETTINGS;
       const selection = await resolveCommandSelection(
         "edit",
         target,
         options.repository,
+        settings,
         options.window,
         options.workspace.workspaceFolders,
       );
@@ -132,10 +140,12 @@ export function createCommandVaultEditDeleteService(
     },
 
     async deleteCommand(target) {
+      const settings = options.getSettings?.() ?? DEFAULT_COMMAND_VAULT_SETTINGS;
       const selection = await resolveCommandSelection(
         "delete",
         target,
         options.repository,
+        settings,
         options.window,
         options.workspace.workspaceFolders,
       );
@@ -181,11 +191,18 @@ async function resolveCommandSelection(
   action: "delete" | "edit",
   target: CommandVaultCommandTarget | undefined,
   repository: CommandVaultRepository,
+  settings: CommandVaultSettings,
   window: CommandVaultWindow,
   workspaceFolders: readonly CommandVaultWorkspaceFolder[] | undefined,
 ): Promise<ResolvedCommandSelection | undefined> {
   const workspaceFolderPath = getWorkspaceFolderPath(workspaceFolders);
-  const scope = await resolveCommandScope(action, target, window, workspaceFolderPath);
+  const scope = await resolveCommandScope(
+    action,
+    target,
+    settings,
+    window,
+    workspaceFolderPath,
+  );
 
   if (!scope) {
     return undefined;
@@ -253,9 +270,17 @@ async function resolveCommandSelection(
 async function resolveCommandScope(
   action: "delete" | "edit",
   target: CommandVaultCommandTarget | undefined,
+  settings: CommandVaultSettings,
   window: CommandVaultWindow,
   workspaceFolderPath: string | undefined,
 ): Promise<CommandVaultScope | undefined> {
+  if (target?.scope && !isCommandVaultScopeEnabled(target.scope, settings)) {
+    await window.showWarningMessage(
+      `Command Vault ${target.scope} commands are disabled in settings.`,
+    );
+    return undefined;
+  }
+
   if (target?.scope === "workspace" && !workspaceFolderPath) {
     await window.showWarningMessage(
       `Command Vault needs an open workspace to ${action} workspace commands.`,
@@ -267,8 +292,17 @@ async function resolveCommandScope(
     return target.scope;
   }
 
+  const scopeItems = createScopePickItems(workspaceFolderPath, settings);
+
+  if (scopeItems.length === 0) {
+    await window.showWarningMessage(
+      `Command Vault has no enabled scopes to ${action}.`,
+    );
+    return undefined;
+  }
+
   const selectedScope = await window.showQuickPick(
-    createScopePickItems(workspaceFolderPath),
+    scopeItems,
     {
       title: capitalizeAction(action) + " Command",
       placeHolder: `Choose which ${action} target to browse`,
@@ -280,16 +314,19 @@ async function resolveCommandScope(
 
 function createScopePickItems(
   workspaceFolderPath: string | undefined,
+  settings: CommandVaultSettings,
 ): CommandVaultScopePickItem[] {
-  const items: CommandVaultScopePickItem[] = [
-    {
+  const items: CommandVaultScopePickItem[] = [];
+
+  if (isCommandVaultScopeEnabled("global", settings)) {
+    items.push({
       label: "Global",
       description: "Commands available in every workspace",
       scope: "global",
-    },
-  ];
+    });
+  }
 
-  if (workspaceFolderPath) {
+  if (workspaceFolderPath && isCommandVaultScopeEnabled("workspace", settings)) {
     items.unshift({
       label: "Workspace",
       description: "Commands available only in this workspace",

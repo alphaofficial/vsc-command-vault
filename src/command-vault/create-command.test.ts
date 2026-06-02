@@ -153,6 +153,60 @@ describe("command vault create-command service", () => {
     assert.deepEqual(repository.writeGlobalCommandsCalls, []);
     assert.deepEqual(repository.writeWorkspaceCommandsCalls, []);
   });
+
+  it("filters disabled scopes out of the create picker", async () => {
+    const workspacePath = "/tmp/project-delta";
+    const repository = createRepositoryRecorder();
+    const window = createWindowDouble({
+      inputValues: [" Build ", " npm run build ", " Compile the repo "],
+    });
+    const service = createCommandVaultCreateService({
+      getSettings() {
+        return {
+          defaultExecutionBehavior: "run",
+          enableGlobalScope: false,
+          enableWorkspaceScope: true,
+        };
+      },
+      repository,
+      window,
+      workspace: {
+        workspaceFolders: [
+          {
+            uri: {
+              fsPath: workspacePath,
+            },
+          },
+        ],
+      },
+      now() {
+        return "2026-06-03T09:00:00.000Z";
+      },
+      createId() {
+        return "command_filtered_workspace";
+      },
+    });
+
+    const createdCommand = await service.createCommand();
+
+    assert.deepEqual(window.quickPickLabelsSeen, [["Workspace"]]);
+    assert.deepEqual(createdCommand, {
+      id: "command_filtered_workspace",
+      scope: "workspace",
+      name: "Build",
+      command: "npm run build",
+      description: "Compile the repo",
+      createdAt: "2026-06-03T09:00:00.000Z",
+      updatedAt: "2026-06-03T09:00:00.000Z",
+    });
+    assert.deepEqual(repository.writeGlobalCommandsCalls, []);
+    assert.deepEqual(repository.writeWorkspaceCommandsCalls, [
+      {
+        commands: [createdCommand],
+        workspaceId: createWorkspaceId(workspacePath),
+      },
+    ]);
+  });
 });
 
 function createRepositoryRecorder({

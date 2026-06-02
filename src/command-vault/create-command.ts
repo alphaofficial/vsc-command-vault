@@ -3,6 +3,11 @@ import { createHash } from "node:crypto";
 import type { CommandVaultCommand, CommandVaultScope } from "./model.ts";
 import { createWorkspaceId } from "./model.ts";
 import type { CommandVaultRepository } from "./repository.ts";
+import {
+  DEFAULT_COMMAND_VAULT_SETTINGS,
+  isCommandVaultScopeEnabled,
+  type CommandVaultSettings,
+} from "./settings.ts";
 
 export const COMMAND_VAULT_CREATE_COMMAND_ID = "commandVault.createCommand";
 
@@ -47,6 +52,7 @@ export interface CommandVaultWorkspace {
 
 export interface CreateCommandVaultServiceOptions {
   createId?: (command: Omit<CommandVaultCommand, "id">) => string;
+  getSettings?: () => CommandVaultSettings;
   now?: () => string;
   repository: CommandVaultRepository;
   window: CommandVaultWindow;
@@ -71,8 +77,10 @@ export function createCommandVaultCreateService(
 
   return {
     async createCommand(requestedScope) {
+      const settings = options.getSettings?.() ?? DEFAULT_COMMAND_VAULT_SETTINGS;
       const scope = await resolveCommandScope(
         requestedScope,
+        settings,
         options.window,
         options.workspace.workspaceFolders,
       );
@@ -168,9 +176,17 @@ export function createCommandVaultCreateService(
 
 async function resolveCommandScope(
   requestedScope: CommandVaultScope | undefined,
+  settings: CommandVaultSettings,
   window: CommandVaultWindow,
   workspaceFolders: readonly CommandVaultWorkspaceFolder[] | undefined,
 ): Promise<CommandVaultScope | undefined> {
+  if (requestedScope && !isCommandVaultScopeEnabled(requestedScope, settings)) {
+    await window.showWarningMessage(
+      `Command Vault ${requestedScope} commands are disabled in settings.`,
+    );
+    return undefined;
+  }
+
   if (requestedScope === "workspace" && !getWorkspaceFolderPath(workspaceFolders)) {
     await window.showWarningMessage(
       "Command Vault needs an open workspace to create workspace commands.",
@@ -182,7 +198,15 @@ async function resolveCommandScope(
     return requestedScope;
   }
 
-  const scopeItems = createScopePickItems(workspaceFolders);
+  const scopeItems = createScopePickItems(workspaceFolders, settings);
+
+  if (scopeItems.length === 0) {
+    await window.showWarningMessage(
+      "Command Vault has no enabled scopes available for new commands.",
+    );
+    return undefined;
+  }
+
   const selectedScope = await window.showQuickPick(scopeItems, {
     title: "Create Command",
     placeHolder: "Where should this command be saved?",
@@ -193,16 +217,22 @@ async function resolveCommandScope(
 
 function createScopePickItems(
   workspaceFolders: readonly CommandVaultWorkspaceFolder[] | undefined,
+  settings: CommandVaultSettings,
 ): CommandVaultScopePickItem[] {
-  const items: CommandVaultScopePickItem[] = [
-    {
+  const items: CommandVaultScopePickItem[] = [];
+
+  if (isCommandVaultScopeEnabled("global", settings)) {
+    items.push({
       label: "Global",
       description: "Available in every workspace",
       scope: "global",
-    },
-  ];
+    });
+  }
 
-  if (getWorkspaceFolderPath(workspaceFolders)) {
+  if (
+    isCommandVaultScopeEnabled("workspace", settings) &&
+    getWorkspaceFolderPath(workspaceFolders)
+  ) {
     items.unshift({
       label: "Workspace",
       description: "Available only in this workspace",

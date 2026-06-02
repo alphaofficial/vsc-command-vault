@@ -26,6 +26,35 @@ describe("command vault sidebar", () => {
     assert.match(html, /Save reusable personal commands here\./);
   });
 
+  it("renders disabled scope states and skips loading disabled storage", async () => {
+    const repository = createRepositoryRecorder({
+      globalCommands: [createCommand("global", "global-1")],
+      workspaceCommands: [createCommand("workspace", "workspace-1")],
+    });
+    const state = await loadCommandVaultSidebarState(
+      repository,
+      [
+        {
+          uri: {
+            fsPath: "/tmp/project-gamma",
+          },
+        },
+      ],
+      {
+        defaultExecutionBehavior: "run",
+        enableGlobalScope: false,
+        enableWorkspaceScope: false,
+      },
+    );
+
+    const html = renderCommandVaultSidebarHtml(state);
+
+    assert.match(html, /Workspace commands disabled/);
+    assert.match(html, /Global commands disabled/);
+    assert.equal(repository.readGlobalCommandsCalls, 0);
+    assert.deepEqual(repository.readWorkspaceCommandsCalls, []);
+  });
+
   it("renders command cards with visible actions for both scopes", async () => {
     const state = await loadCommandVaultSidebarState(
       createRepositoryRecorder({

@@ -1,8 +1,15 @@
 import type { CommandVaultCommand } from "./model.ts";
 import { createWorkspaceId } from "./model.ts";
 import type { CommandVaultRepository } from "./repository.ts";
+import {
+  DEFAULT_COMMAND_VAULT_SETTINGS,
+  isCommandVaultScopeEnabled,
+  type CommandVaultSettings,
+} from "./settings.ts";
 
 export const COMMAND_VAULT_SEARCH_COMMAND_ID = "commandVault.searchCommands";
+export const COMMAND_VAULT_SEARCH_ALTERNATE_EXECUTION_COMMAND_ID =
+  "commandVault.searchCommands.alternateExecution";
 export const COMMAND_VAULT_SEARCH_EDIT_COMMAND_ID =
   "commandVault.searchCommands.edit";
 export const COMMAND_VAULT_SEARCH_PASTE_COMMAND_ID =
@@ -71,6 +78,7 @@ export interface CommandVaultSearchWorkspace {
 
 export interface CreateCommandVaultSearchServiceOptions {
   commands?: CommandVaultSearchCommands;
+  getSettings?: () => CommandVaultSettings;
   repository: CommandVaultRepository;
   window: CommandVaultSearchWindow;
   workspace: CommandVaultSearchWorkspace;
@@ -78,6 +86,7 @@ export interface CreateCommandVaultSearchServiceOptions {
 
 export interface CommandVaultSearchService {
   searchCommands(): Promise<CommandVaultSearchSelection | undefined>;
+  triggerAlternateAction(): Promise<boolean>;
   triggerActiveAction(
     action: Exclude<CommandVaultSearchAction, "run">,
   ): Promise<boolean>;
@@ -85,6 +94,7 @@ export interface CommandVaultSearchService {
 
 interface ActiveSearchSession {
   cancel(): Promise<boolean>;
+  selectAlternate(): Promise<boolean>;
   select(
     action: CommandVaultSearchAction,
   ): Promise<boolean>;
@@ -101,29 +111,38 @@ export function createCommandVaultSearchService(
         await activeSession.cancel();
       }
 
+      const settings = options.getSettings?.() ?? DEFAULT_COMMAND_VAULT_SETTINGS;
       const commands = await readSearchableCommands(
         options.repository,
+        settings,
         options.workspace.workspaceFolders,
       );
 
       if (commands.length === 0) {
-        await options.window.showWarningMessage(
-          "Command Vault has no commands to search.",
-        );
+        const warningMessage =
+          !settings.enableGlobalScope && !settings.enableWorkspaceScope
+            ? "Command Vault search is unavailable because all scopes are disabled in settings."
+            : "Command Vault has no commands to search.";
+        await options.window.showWarningMessage(warningMessage);
         return undefined;
       }
 
       const quickPick =
         options.window.createQuickPick<CommandVaultSearchQuickPickItem>();
       const items = commands.map(createSearchItem);
+      const defaultExecutionAction = settings.defaultExecutionBehavior;
+      const alternateExecutionAction =
+        defaultExecutionAction === "run" ? "paste" : "run";
       let settled = false;
 
       quickPick.items = items;
       quickPick.matchOnDescription = true;
       quickPick.matchOnDetail = true;
       quickPick.title = "Search Commands";
-      quickPick.placeholder =
-        "Search workspace and global commands. Enter runs, Alt/Option+Enter pastes, Cmd/Ctrl+Enter edits.";
+      quickPick.placeholder = createQuickPickPlaceholder(
+        defaultExecutionAction,
+        alternateExecutionAction,
+      );
 
       const selectionPromise = new Promise<
         CommandVaultSearchSelection | undefined
@@ -153,7 +172,10 @@ export function createCommandVaultSearchService(
           };
 
           const acceptDisposable = quickPick.onDidAccept(() =>
-            settle(resolveSelection("run", quickPick, items), true),
+            settle(
+              resolveSelection(defaultExecutionAction, quickPick, items),
+              true,
+            ),
           );
           const hideDisposable = quickPick.onDidHide(() =>
             settle(undefined, false),
@@ -162,6 +184,12 @@ export function createCommandVaultSearchService(
           activeSession = {
             async cancel() {
               return settle(undefined, true);
+            },
+            async selectAlternate() {
+              return settle(
+                resolveSelection(alternateExecutionAction, quickPick, items),
+                true,
+              );
             },
             async select(action) {
               return settle(resolveSelection(action, quickPick, items), true);
@@ -182,20 +210,44 @@ export function createCommandVaultSearchService(
 
       return activeSession.select(action);
     },
+
+    async triggerAlternateAction() {
+      if (!activeSession) {
+        return false;
+      }
+
+      return activeSession.selectAlternate();
+    },
   };
 }
 
 async function readSearchableCommands(
   repository: CommandVaultRepository,
+  settings: CommandVaultSettings,
   workspaceFolders: readonly CommandVaultSearchWorkspaceFolder[] | undefined,
 ): Promise<CommandVaultCommand[]> {
   const workspaceFolderPath = workspaceFolders?.[0]?.uri.fsPath;
-  const workspaceCommands = workspaceFolderPath
-    ? await repository.readWorkspaceCommands(createWorkspaceId(workspaceFolderPath))
+  const workspaceCommands =
+    settings.enableWorkspaceScope && workspaceFolderPath
+      ? await repository.readWorkspaceCommands(createWorkspaceId(workspaceFolderPath))
+      : [];
+  const globalCommands = isCommandVaultScopeEnabled("global", settings)
+    ? await repository.readGlobalCommands()
     : [];
-  const globalCommands = await repository.readGlobalCommands();
 
   return [...workspaceCommands, ...globalCommands];
+}
+
+function createQuickPickPlaceholder(
+  defaultExecutionAction: Exclude<CommandVaultSearchAction, "edit">,
+  alternateExecutionAction: Exclude<CommandVaultSearchAction, "edit">,
+): string {
+  return [
+    "Search workspace and global commands.",
+    `Enter ${formatExecutionVerb(defaultExecutionAction)},`,
+    `Alt/Option+Enter ${formatExecutionVerb(alternateExecutionAction)},`,
+    "Cmd/Ctrl+Enter edits.",
+  ].join(" ");
 }
 
 function createSearchItem(
@@ -226,6 +278,12 @@ function resolveSelection(
     action,
     command: selectedItem.command,
   };
+}
+
+function formatExecutionVerb(
+  action: Exclude<CommandVaultSearchAction, "edit">,
+): string {
+  return action === "run" ? "runs" : "pastes";
 }
 
 async function setSearchContext(

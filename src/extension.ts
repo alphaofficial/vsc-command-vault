@@ -17,10 +17,15 @@ import {
 import { createCommandVaultRepository } from "./command-vault/repository.ts";
 import {
   COMMAND_VAULT_SEARCH_COMMAND_ID,
+  COMMAND_VAULT_SEARCH_ALTERNATE_EXECUTION_COMMAND_ID,
   COMMAND_VAULT_SEARCH_EDIT_COMMAND_ID,
   COMMAND_VAULT_SEARCH_PASTE_COMMAND_ID,
   createCommandVaultSearchService,
 } from "./command-vault/search-command.ts";
+import {
+  isCommandVaultScopeEnabled,
+  readCommandVaultSettings,
+} from "./command-vault/settings.ts";
 import { createCommandVaultSidebarProvider } from "./command-vault/sidebar.ts";
 
 export {
@@ -125,6 +130,9 @@ export interface CommandVaultExtensionHost {
     showWarningMessage(message: string): void | Promise<void>;
   };
   workspace: {
+    getConfiguration?(section: string): {
+      get<T>(section: string, defaultValue: T): T;
+    };
     workspaceFolders:
       | ReadonlyArray<{
           uri: {
@@ -144,17 +152,20 @@ export function activate(
   }
 
   const resolvedHost = host ?? loadDefaultExtensionHost();
+  const getSettings = () => readCommandVaultSettings(resolvedHost.workspace);
   const repository = createCommandVaultRepository(context.globalStorageUri, {
     onWarning(message) {
       return resolvedHost.window.showWarningMessage(message);
     },
   });
   const createCommand = createCommandVaultCreateService({
+    getSettings,
     repository,
     window: resolvedHost.window,
     workspace: resolvedHost.workspace,
   });
   const editDeleteCommand = createCommandVaultEditDeleteService({
+    getSettings,
     repository,
     window: resolvedHost.window,
     workspace: resolvedHost.workspace,
@@ -165,6 +176,7 @@ export function activate(
   });
   const search = createCommandVaultSearchService({
     commands: resolvedHost.commands,
+    getSettings,
     repository,
     window: {
       createQuickPick() {
@@ -181,6 +193,7 @@ export function activate(
     workspace: resolvedHost.workspace,
   });
   const sidebarProvider = createCommandVaultSidebarProvider({
+    getSettings,
     onDidReceiveMessage: async (message) => {
       switch (message.action) {
         case "copy":
@@ -234,6 +247,10 @@ export function activate(
     id: string;
     scope: CommandVaultScope;
   }) => {
+    if (!(await validateScopeEnabled(target?.scope))) {
+      return;
+    }
+
     const command = await resolveStoredCommandForAction("run", target, {
       repository,
       window: resolvedHost.window,
@@ -250,6 +267,10 @@ export function activate(
     id: string;
     scope: CommandVaultScope;
   }) => {
+    if (!(await validateScopeEnabled(target?.scope))) {
+      return;
+    }
+
     const command = await resolveStoredCommandForAction("copy", target, {
       repository,
       window: resolvedHost.window,
@@ -261,6 +282,18 @@ export function activate(
     }
 
     await execution.copyCommand(command);
+  };
+  const validateScopeEnabled = async (
+    scope: CommandVaultScope | undefined,
+  ): Promise<boolean> => {
+    if (!scope || isCommandVaultScopeEnabled(scope, getSettings())) {
+      return true;
+    }
+
+    await resolvedHost.window.showWarningMessage(
+      `Command Vault ${scope} commands are disabled in settings.`,
+    );
+    return false;
   };
   const dispatchSearchSelection = async (selection: {
     action: "edit" | "paste" | "run";
@@ -324,6 +357,13 @@ export function activate(
       await search.triggerActiveAction("paste");
     },
   );
+  const searchAlternateExecutionDisposable =
+    resolvedHost.commands.registerCommand(
+      COMMAND_VAULT_SEARCH_ALTERNATE_EXECUTION_COMMAND_ID,
+      async () => {
+        await search.triggerAlternateAction();
+      },
+    );
   const searchEditCommandDisposable = resolvedHost.commands.registerCommand(
     COMMAND_VAULT_SEARCH_EDIT_COMMAND_ID,
     async () => {
@@ -343,6 +383,7 @@ export function activate(
     copyCommandDisposable,
     searchCommandDisposable,
     searchPasteCommandDisposable,
+    searchAlternateExecutionDisposable,
     searchEditCommandDisposable,
     sidebarDisposable,
   );

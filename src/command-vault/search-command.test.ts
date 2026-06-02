@@ -105,6 +105,13 @@ describe("command vault search service", () => {
       commands: {
         executeCommand() {},
       },
+      getSettings() {
+        return {
+          defaultExecutionBehavior: "paste",
+          enableGlobalScope: true,
+          enableWorkspaceScope: true,
+        };
+      },
       repository,
       window: {
         createQuickPick() {
@@ -122,16 +129,20 @@ describe("command vault search service", () => {
     const searchPromise = service.searchCommands();
 
     await waitForMicrotasks();
-    const triggered = await service.triggerActiveAction("paste");
+    const triggered = await service.triggerAlternateAction();
     const selection = await searchPromise;
 
     assert.equal(triggered, true);
     assert.deepEqual(selection, {
-      action: "paste",
+      action: "run",
       command: globalCommand,
     });
     assert.deepEqual(repository.readWorkspaceCommandsCalls, []);
     assert.equal(quickPick.showCalls, 1);
+    assert.match(
+      quickPick.instance.placeholder,
+      /Enter pastes, Alt\/Option\+Enter runs, Cmd\/Ctrl\+Enter edits\./,
+    );
   });
 
   it("warns instead of opening a picker when there is nothing to search", async () => {
@@ -162,6 +173,53 @@ describe("command vault search service", () => {
     assert.equal(quickPickCreated, false);
     assert.deepEqual(warningMessages, [
       "Command Vault has no commands to search.",
+    ]);
+  });
+
+  it("warns when settings disable every searchable scope", async () => {
+    const warningMessages: string[] = [];
+    const repository = createRepositoryRecorder({
+      globalCommands: [createCommand("global", "global-3")],
+      workspaceCommands: [createCommand("workspace", "workspace-3")],
+    });
+    const service = createCommandVaultSearchService({
+      commands: {
+        executeCommand() {},
+      },
+      getSettings() {
+        return {
+          defaultExecutionBehavior: "run",
+          enableGlobalScope: false,
+          enableWorkspaceScope: false,
+        };
+      },
+      repository,
+      window: {
+        createQuickPick() {
+          throw new Error("quick pick should not be created");
+        },
+        showWarningMessage(message) {
+          warningMessages.push(message);
+        },
+      },
+      workspace: {
+        workspaceFolders: [
+          {
+            uri: {
+              fsPath: "/tmp/project-search",
+            },
+          },
+        ],
+      },
+    });
+
+    const selection = await service.searchCommands();
+
+    assert.equal(selection, undefined);
+    assert.equal(repository.readGlobalCommandsCalls, 0);
+    assert.deepEqual(repository.readWorkspaceCommandsCalls, []);
+    assert.deepEqual(warningMessages, [
+      "Command Vault search is unavailable because all scopes are disabled in settings.",
     ]);
   });
 });

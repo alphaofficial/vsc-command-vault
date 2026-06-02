@@ -19,7 +19,8 @@
     "onCommand:commandVault.editCommand",
     "onCommand:commandVault.deleteCommand",
     "onCommand:commandVault.runCommand",
-    "onCommand:commandVault.searchCommands"
+    "onCommand:commandVault.searchCommands",
+    "onCommand:commandVault.searchCommands.alternateExecution"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -68,7 +69,7 @@
     ],
     "keybindings": [
       {
-        "command": "commandVault.searchCommands.paste",
+        "command": "commandVault.searchCommands.alternateExecution",
         "key": "alt+enter",
         "when": "inQuickOpen && commandVault.searchCommandsVisible"
       },
@@ -78,14 +79,38 @@
         "mac": "cmd+enter",
         "when": "inQuickOpen && commandVault.searchCommandsVisible"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Command Vault",
+      "properties": {
+        "commandVault.defaultExecutionBehavior": {
+          "type": "string",
+          "default": "run",
+          "enum": [
+            "run",
+            "paste"
+          ],
+          "markdownDescription": "Controls the default quick-pick execution action. `run` sends the command and executes it on Enter, while `paste` sends the command without a trailing newline on Enter."
+        },
+        "commandVault.enableGlobalScope": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show and allow Command Vault global commands."
+        },
+        "commandVault.enableWorkspaceScope": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show and allow Command Vault workspace commands."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "node ./scripts/build.mjs",
     "compile": "npm run build",
     "clean": "rm -rf out coverage",
     "test": "node --test ./test/**/*.test.js",
-    "test:vitest": "node --no-warnings --test --experimental-strip-types ./src/extension.test.ts ./src/command-vault/model.test.ts ./src/command-vault/repository.test.ts ./src/command-vault/execution.test.ts ./src/command-vault/create-command.test.ts ./src/command-vault/edit-delete-command.test.ts ./src/command-vault/search-command.test.ts ./src/command-vault/sidebar.test.ts"
+    "test:vitest": "node --no-warnings --test --experimental-strip-types ./src/extension.test.ts ./src/command-vault/model.test.ts ./src/command-vault/repository.test.ts ./src/command-vault/execution.test.ts ./src/command-vault/create-command.test.ts ./src/command-vault/edit-delete-command.test.ts ./src/command-vault/search-command.test.ts ./src/command-vault/settings.test.ts ./src/command-vault/sidebar.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.1",
