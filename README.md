@@ -18,7 +18,7 @@ Command Vault is a VS Code extension for saving, searching, and running reusable
 It helps you build a workspace-local catalog of shell commands and run them instantly from the command palette or the sidebar, with keyboard shortcuts for every action.
 
 ```bash
-curl -L https://github.com/alphaofficial/vsc-command-vault/releases/latest/download/commandvault.vsix -o /tmp/commandvault.vsix && code --install-extension /tmp/commandvault.vsix
+curl -fL https://github.com/alphaofficial/vsc-command-vault/releases/latest/download/commandvault.vsix -o /tmp/commandvault.vsix && code --install-extension /tmp/commandvault.vsix
 ```
 
 It's as simple as:
