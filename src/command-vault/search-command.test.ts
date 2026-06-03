@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 
 import type { CommandVaultCommand } from "./model.ts";
 import {
   createCommandVaultSearchService,
+  type CommandVaultSearchQuickPick,
+  type CommandVaultSearchQuickPickItem,
 } from "./search-command.ts";
 
 describe("command vault search service", () => {
@@ -33,8 +35,8 @@ describe("command vault search service", () => {
       },
       repository,
       window: {
-        createQuickPick() {
-          return quickPick.instance;
+        createQuickPick<Item extends CommandVaultSearchQuickPickItem>() {
+          return quickPick.instance as CommandVaultSearchQuickPick<Item>;
         },
         showWarningMessage() {
           throw new Error("warning should not be shown");
@@ -114,8 +116,8 @@ describe("command vault search service", () => {
       },
       repository,
       window: {
-        createQuickPick() {
-          return quickPick.instance;
+        createQuickPick<Item extends CommandVaultSearchQuickPickItem>() {
+          return quickPick.instance as CommandVaultSearchQuickPick<Item>;
         },
         showWarningMessage() {
           throw new Error("warning should not be shown");
@@ -289,48 +291,16 @@ function createRepositoryRecorder({
 
 function createQuickPickHarness(): {
   accept(): Promise<void>;
-  instance: {
-    activeItems: readonly Array<{
-      command: CommandVaultCommand;
-      description?: string;
-      detail?: string;
-      label: string;
-    }>;
-    items: readonly Array<{
-      command: CommandVaultCommand;
-      description?: string;
-      detail?: string;
-      label: string;
-    }>;
-    matchOnDescription: boolean;
-    matchOnDetail: boolean;
-    placeholder: string;
-    title: string;
-    dispose(): void;
-    hide(): void;
-    onDidAccept(listener: () => void | Promise<void>): { dispose(): void };
-    onDidHide(listener: () => void | Promise<void>): { dispose(): void };
-    show(): void;
-  };
+  instance: CommandVaultSearchQuickPick<CommandVaultSearchQuickPickItem>;
   setActiveIndex(index: number): void;
   showCalls: number;
 } {
   let acceptListener: (() => void | Promise<void>) | undefined;
   let hideListener: (() => void | Promise<void>) | undefined;
   let showCalls = 0;
-  const instance = {
-    activeItems: [] as Array<{
-      command: CommandVaultCommand;
-      description?: string;
-      detail?: string;
-      label: string;
-    }>,
-    items: [] as Array<{
-      command: CommandVaultCommand;
-      description?: string;
-      detail?: string;
-      label: string;
-    }>,
+  const instance: CommandVaultSearchQuickPick<CommandVaultSearchQuickPickItem> = {
+    activeItems: [] as CommandVaultSearchQuickPickItem[],
+    items: [] as CommandVaultSearchQuickPickItem[],
     matchOnDescription: false,
     matchOnDetail: false,
     placeholder: "",

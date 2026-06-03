@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 
 import {
   COMMAND_VAULT_CONFIGURATION_SECTION,
@@ -21,14 +21,14 @@ describe("command vault settings", () => {
       getConfiguration(section) {
         requestedSections.push(section);
         return {
-          get(key, defaultValue) {
+          get<T>(key: string, defaultValue: T): T {
             switch (key) {
               case "defaultExecutionBehavior":
-                return "paste";
+                return "paste" as T;
               case "enableGlobalScope":
-                return false;
+                return false as T;
               case "enableWorkspaceScope":
-                return true;
+                return true as T;
               default:
                 return defaultValue;
             }
@@ -49,14 +49,14 @@ describe("command vault settings", () => {
     const settings = readCommandVaultSettings({
       getConfiguration() {
         return {
-          get(key, defaultValue) {
+          get<T>(key: string, defaultValue: T): T {
             switch (key) {
               case "defaultExecutionBehavior":
-                return "launch";
+                return "launch" as T;
               case "enableGlobalScope":
-                return "nope";
+                return "nope" as T;
               case "enableWorkspaceScope":
-                return 0;
+                return 0 as T;
               default:
                 return defaultValue;
             }

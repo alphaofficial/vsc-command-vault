@@ -57,13 +57,13 @@ export interface CommandVaultExtensionContext {
 
 export interface CommandVaultExtensionHost {
   commands: {
-    executeCommand?(
+    executeCommand?<Args extends unknown[]>(
       command: string,
-      ...args: unknown[]
+      ...args: Args
     ): unknown;
-    registerCommand(
+    registerCommand<Args extends unknown[]>(
       command: string,
-      callback: (...args: unknown[]) => unknown,
+      callback: (...args: Args) => unknown,
     ): CommandVaultExtensionDisposable;
   };
   env: {
