@@ -5,11 +5,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/alphaxsalt/vsc-snippet-catalog/releases/latest">
-    <img src="https://img.shields.io/github/v/release/alphaxsalt/vsc-snippet-catalog?style=flat&colorA=000000&colorB=000000" alt="Latest release" />
+  <a href="https://github.com/alphaofficial/vsc-command-vault/releases/latest">
+    <img src="https://img.shields.io/github/v/release/alphaofficial/vsc-command-vault?style=flat&colorA=000000&colorB=000000" alt="Latest release" />
   </a>
-  <a href="https://github.com/alphaxsalt/vsc-snippet-catalog/actions/workflows/release.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/alphaxsalt/vsc-snippet-catalog/release.yml?style=flat&colorA=000000&colorB=000000" alt="Release workflow" />
+  <a href="https://github.com/alphaofficial/vsc-command-vault/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/alphaofficial/vsc-command-vault/ci.yml?style=flat&colorA=000000&colorB=000000" alt="Build workflow" />
   </a>
 </p>
 
@@ -18,7 +18,7 @@ Command Vault is a VS Code extension for saving, searching, and running reusable
 It helps you build a workspace-local catalog of shell commands and run them instantly from the command palette or the sidebar, with keyboard shortcuts for every action.
 
 ```bash
-curl -L https://github.com/alphaxsalt/vsc-command-vault/releases/latest/download/commandvault.vsix -o /tmp/commandvault.vsix && code --install-extension /tmp/commandvault.vsix
+curl -L https://github.com/alphaofficial/vsc-command-vault/releases/latest/download/commandvault.vsix -o /tmp/commandvault.vsix && code --install-extension /tmp/commandvault.vsix
 ```
 
 It's as simple as:
@@ -111,7 +111,7 @@ The extension is written in TypeScript with full type coverage across the core d
 ---
 
 <p align="center">
-  <a href="https://github.com/alphaxsalt/vsc-snippet-catalog">GitHub</a>
+  <a href="https://github.com/alphaofficial/vsc-command-vault">GitHub</a>
   ·
-  <a href="https://github.com/alphaxsalt/vsc-snippet-catalog/releases/latest">Latest release</a>
+  <a href="https://github.com/alphaofficial/vsc-command-vault/releases/latest">Latest release</a>
 </p>
