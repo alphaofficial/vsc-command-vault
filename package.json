@@ -108,7 +108,8 @@
   "scripts": {
     "build": "node ./scripts/build.mjs",
     "compile": "npm run build",
-    "clean": "rm -rf out coverage",
+    "clean": "rm -rf dist out coverage",
+    "package": "node ./scripts/package.mjs",
     "test:integration": "node ./test/integration/run-tests.mjs",
     "test": "node --test ./test/**/*.test.js",
     "test:vitest": "node --no-warnings --test --experimental-strip-types ./src/extension.test.ts ./src/command-vault/model.test.ts ./src/command-vault/repository.test.ts ./src/command-vault/execution.test.ts ./src/command-vault/create-command.test.ts ./src/command-vault/edit-delete-command.test.ts ./src/command-vault/search-command.test.ts ./src/command-vault/settings.test.ts ./src/command-vault/sidebar.test.ts"
