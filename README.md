@@ -1,7 +1,7 @@
 # Command Vault
 
 <p align="center">
-  <img src="./docs/readme-header.svg" alt="Command Vault" />
+  <img src="./docs/readme-header.png" alt="Command Vault" />
 </p>
 
 <p align="center">

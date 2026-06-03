@@ -61,7 +61,7 @@ export interface CommandVaultSearchWindow {
 }
 
 export interface CommandVaultSearchCommands {
-  executeCommand?(command: string, ...args: unknown[]): void | Promise<void>;
+  executeCommand?(command: string, ...args: unknown[]): unknown;
 }
 
 export interface CommandVaultSearchWorkspaceFolder {
@@ -171,15 +171,15 @@ export function createCommandVaultSearchService(
             return true;
           };
 
-          const acceptDisposable = quickPick.onDidAccept(() =>
-            settle(
+          const acceptDisposable = quickPick.onDidAccept(async () => {
+            await settle(
               resolveSelection(defaultExecutionAction, quickPick, items),
               true,
-            ),
-          );
-          const hideDisposable = quickPick.onDidHide(() =>
-            settle(undefined, false),
-          );
+            );
+          });
+          const hideDisposable = quickPick.onDidHide(async () => {
+            await settle(undefined, false);
+          });
 
           activeSession = {
             async cancel() {

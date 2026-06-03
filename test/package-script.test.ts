@@ -1,9 +1,10 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const { execFile } = require("node:child_process");
-const { mkdtemp, mkdir, readFile, rm, writeFile } = require("node:fs/promises");
-const { tmpdir } = require("node:os");
-const { join } = require("node:path");
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { test } from "vitest";
 
 test("buildVsixManifest escapes extension metadata", async () => {
   const { buildVsixManifest } = await import("../scripts/package.mjs");
@@ -51,14 +52,30 @@ test("createVsixArchive writes a VSIX with extension payload", async () => {
       ),
       "utf8",
     );
-    await writeFile(join(repoRoot, "out", "extension.js"), "exports.activate = () => {};\n", "utf8");
-    await writeFile(join(repoRoot, "resources", "command-vault.svg"), "<svg />\n", "utf8");
+    await writeFile(
+      join(repoRoot, "out", "extension.js"),
+      "exports.activate = () => {};\n",
+      "utf8",
+    );
+    await writeFile(
+      join(repoRoot, "resources", "command-vault.svg"),
+      "<svg />\n",
+      "utf8",
+    );
 
     const archivePath = await createVsixArchive(repoRoot);
     const listing = await runCommand("/usr/bin/unzip", ["-l", archivePath]);
-    const manifest = await runCommand("/usr/bin/unzip", ["-p", archivePath, "extension.vsixmanifest"]);
+    const manifest = await runCommand("/usr/bin/unzip", [
+      "-p",
+      archivePath,
+      "extension.vsixmanifest",
+    ]);
     const packageJson = JSON.parse(
-      await runCommand("/usr/bin/unzip", ["-p", archivePath, "extension/package.json"]),
+      await runCommand("/usr/bin/unzip", [
+        "-p",
+        archivePath,
+        "extension/package.json",
+      ]),
     );
 
     assert.equal(packageJson.name, "command-vault");
@@ -72,7 +89,7 @@ test("createVsixArchive writes a VSIX with extension payload", async () => {
   }
 });
 
-function runCommand(command, args) {
+function runCommand(command: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(command, args, { encoding: "utf8" }, (error, stdout, stderr) => {
       if (error) {

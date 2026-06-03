@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import vm from "node:vm";
 
 import type { CommandVaultCommand } from "./model.ts";
@@ -212,10 +212,9 @@ describe("command vault sidebar", () => {
     const createForm = new FakeFormElement();
     const searchInput = new FakeInputElement();
     const nameAndCommandCard = new FakeElement({ searchText: "Start app npm run dev" });
-    const descriptionOnlyCard = new FakeElement(
-      { searchText: "Build assets npm run build" },
-      "Build assets npm run build Unique deployment helper text",
-    );
+    const descriptionOnlyCard = new FakeElement({
+      searchText: "Build assets npm run build",
+    });
     const dom = createFakeSidebarDom({
       cards: [nameAndCommandCard, descriptionOnlyCard],
       createForm,

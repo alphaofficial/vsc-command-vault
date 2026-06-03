@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import assert from "node:assert/strict";
 
-import { afterEach, describe, it } from "node:test";
+import { afterEach, describe, it } from "vitest";
 
 import type { CommandVaultCommand } from "./model.ts";
 import {
