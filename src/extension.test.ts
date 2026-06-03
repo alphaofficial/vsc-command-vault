@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 
 import {
   activate,
+  type CommandVaultExtensionHost,
   COMMAND_VAULT_COPY_COMMAND_ID,
   COMMAND_VAULT_CREATE_COMMAND_ID,
   COMMAND_VAULT_DELETE_COMMAND_ID,
@@ -17,6 +18,29 @@ import {
   COMMAND_VAULT_VIEW_ID,
   deactivate,
 } from "./extension.ts";
+import { createWorkspaceId, type CommandVaultCommand } from "./command-vault/model.ts";
+
+interface PackageJsonContributes {
+  viewsContainers?: {
+    activitybar?: Array<{ id: string; title: string }>;
+  };
+  views?: Record<string, Array<{ id: string; name: string }>>;
+  commands?: Array<{ command: string; title: string }>;
+}
+
+type QuickPickResult<Item extends { label: string }> = {
+  activeItems: readonly Item[];
+  items: readonly Item[];
+  matchOnDescription: boolean;
+  matchOnDetail: boolean;
+  placeholder: string;
+  title: string;
+  dispose(): void;
+  hide(): void;
+  onDidAccept(listener: () => void | Promise<void>): { dispose(): void };
+  onDidHide(listener: () => void | Promise<void>): { dispose(): void };
+  show(): void;
+};
 
 describe("extension scaffold", () => {
   it("exports stable baseline identifiers", () => {
@@ -40,6 +64,52 @@ describe("extension scaffold", () => {
   it("keeps activation hooks callable", () => {
     assert.doesNotThrow(() => activate());
     assert.doesNotThrow(() => deactivate());
+  });
+
+  it("declares view and command identifiers in package.json that match exported constants", async () => {
+    // Parse package.json to validate contributes match the exported constants.
+    // This prevents stale extension state where VS Code caches old contribution
+    // IDs that no longer match what the extension actually registers.
+    const packageJsonPath = join(process.cwd(), "package.json");
+    const raw = await readFile(packageJsonPath, { encoding: "utf8" });
+    const pkg = JSON.parse(raw) as { contributes?: PackageJsonContributes };
+
+    assert.ok(pkg.contributes, "package.json must have a contributes section");
+
+    // Validate view container
+    const activitybarContainers = pkg.contributes.viewsContainers?.activitybar ?? [];
+    const containerIds = activitybarContainers.map((c) => c.id);
+    assert.ok(
+      containerIds.includes(COMMAND_VAULT_VIEW_CONTAINER_ID),
+      `view container "${COMMAND_VAULT_VIEW_CONTAINER_ID}" must be declared in package.json contributes.viewsContainers.activitybar`,
+    );
+
+    // Validate view ID
+    const views = pkg.contributes.views ?? {};
+    const containerViews = views[COMMAND_VAULT_VIEW_CONTAINER_ID] ?? [];
+    const viewIds = containerViews.map((v) => v.id);
+    assert.ok(
+      viewIds.includes(COMMAND_VAULT_VIEW_ID),
+      `view "${COMMAND_VAULT_VIEW_ID}" must be declared in package.json contributes.views["${COMMAND_VAULT_VIEW_CONTAINER_ID}"]`,
+    );
+
+    // Validate command IDs
+    const declaredCommands = pkg.contributes.commands ?? [];
+    const declaredCommandIds = declaredCommands.map((c) => c.command);
+    const expectedCommandIds = [
+      COMMAND_VAULT_CREATE_COMMAND_ID,
+      COMMAND_VAULT_EDIT_COMMAND_ID,
+      COMMAND_VAULT_COPY_COMMAND_ID,
+      COMMAND_VAULT_RUN_COMMAND_ID,
+      COMMAND_VAULT_DELETE_COMMAND_ID,
+      COMMAND_VAULT_SEARCH_COMMAND_ID,
+    ];
+    for (const id of expectedCommandIds) {
+      assert.ok(
+        declaredCommandIds.includes(id),
+        `command "${id}" must be declared in package.json contributes.commands`,
+      );
+    }
   });
 
   it("registers the sidebar provider and routes sidebar actions to execution handlers", async () => {
@@ -72,10 +142,19 @@ describe("extension scaffold", () => {
       | ((message: unknown) => void | Promise<void>)
       | undefined;
 
+    const workspacePath = "/tmp/command-vault-sidebar-actions";
+    const workspaceId = createWorkspaceId(workspacePath);
+
     await mkdir(join(storagePath, "workspaces"), { recursive: true });
     await writeFile(
-      join(storagePath, "global.json"),
-      `${JSON.stringify([createStoredCommand()], null, 2)}\n`,
+      join(storagePath, "workspaces", `${workspaceId}.json`),
+      `${JSON.stringify([
+        {
+          ...createStoredCommand(),
+          id: "workspace-1",
+          scope: "workspace",
+        },
+      ], null, 2)}\n`,
       { encoding: "utf8" },
     );
 
@@ -129,10 +208,10 @@ describe("extension scaffold", () => {
               dispose() {},
             };
           },
-          createQuickPick() {
+          createQuickPick<Item extends { label: string }>(): QuickPickResult<Item> {
             return {
-              activeItems: [],
-              items: [],
+              activeItems: [] as unknown as readonly Item[],
+              items: [] as unknown as readonly Item[],
               matchOnDescription: false,
               matchOnDetail: false,
               placeholder: "",
@@ -150,7 +229,7 @@ describe("extension scaffold", () => {
                 };
               },
               show() {},
-            };
+            } as QuickPickResult<Item>;
           },
           async showInputBox() {
             return inputBoxValues.shift();
@@ -164,7 +243,7 @@ describe("extension scaffold", () => {
           },
         },
         workspace: {
-          workspaceFolders: undefined,
+          workspaceFolders: [{ uri: { fsPath: workspacePath } }],
         },
       },
     );
@@ -174,7 +253,7 @@ describe("extension scaffold", () => {
       onDidReceiveMessage(listener: (message: unknown) => void | Promise<void>) {
         receiveMessage = listener;
       },
-      options: {},
+      options: {} as { enableScripts?: boolean },
     };
 
     await registeredProvider?.resolveWebviewView({ webview });
@@ -183,21 +262,29 @@ describe("extension scaffold", () => {
       type: "commandVault.action",
       action: "copy",
       target: {
-        id: "global-1",
-        scope: "global",
+        id: "workspace-1",
+        scope: "workspace",
       },
     });
     await receiveMessage?.({
       type: "commandVault.action",
       action: "run",
       target: {
-        id: "global-1",
-        scope: "global",
+        id: "workspace-1",
+        scope: "workspace",
+      },
+    });
+    await receiveMessage?.({
+      type: "commandVault.action",
+      action: "paste",
+      target: {
+        id: "workspace-1",
+        scope: "workspace",
       },
     });
     await commandCallbacks.get(COMMAND_VAULT_CREATE_COMMAND_ID)?.("global");
-    assert.match(webview.html, />Build</);
-    assert.match(webview.html, /npm run build/);
+    assert.doesNotMatch(webview.html, />Build</);
+    assert.doesNotMatch(webview.html, /npm run build/);
     await commandCallbacks.get(COMMAND_VAULT_DELETE_COMMAND_ID)?.();
 
     assert.deepEqual(registrations, [
@@ -212,19 +299,305 @@ describe("extension scaffold", () => {
       "commandVault.searchCommands.edit",
     ]);
     assert.equal(webview.options.enableScripts, true);
-    assert.match(webview.html, /data-command-vault-action="run"/);
+    assert.doesNotMatch(webview.html, /data-command-vault-action="run"/);
     assert.doesNotMatch(webview.html, />Start app</);
-    assert.match(webview.html, />Build</);
+    assert.doesNotMatch(webview.html, />Build</);
     assert.deepEqual(clipboardWrites, ["npm run dev"]);
-    assert.deepEqual(showCalls, [false]);
+    assert.deepEqual(showCalls, [false, false]);
     assert.deepEqual(sendTextCalls, [
       {
         text: "npm run dev",
         addNewLine: true,
       },
+      {
+        text: "npm run dev",
+        addNewLine: false,
+      },
     ]);
     assert.deepEqual(warningMessages, []);
     assert.equal(subscriptions.length, 10);
+  });
+
+  it("ignores malformed sidebar command-card actions instead of opening fallback pickers", async () => {
+    const storagePath = await mkdtemp(join(tmpdir(), "command-vault-sidebar-strict-"));
+    const commandCallbacks = new Map<string, (...args: unknown[]) => unknown>();
+    const warningMessages: string[] = [];
+    let quickPickOpened = false;
+    let registeredProvider:
+      | {
+          resolveWebviewView(webviewView: {
+            webview: {
+              html: string;
+              onDidReceiveMessage?(
+                listener: (message: unknown) => void | Promise<void>,
+              ): void;
+              options?: {
+                enableScripts?: boolean;
+              };
+            };
+          }): void | Promise<void>;
+        }
+      | undefined;
+    let receiveMessage:
+      | ((message: unknown) => void | Promise<void>)
+      | undefined;
+
+    await mkdir(join(storagePath, "workspaces"), { recursive: true });
+    await writeFile(
+      join(storagePath, "global.json"),
+      `${JSON.stringify([createStoredCommand()], null, 2)}\n`,
+      { encoding: "utf8" },
+    );
+
+    activate(
+      {
+        globalStorageUri: {
+          fsPath: storagePath,
+        },
+        subscriptions: {
+          push() {
+            return 0;
+          },
+        },
+      },
+      {
+        commands: {
+          registerCommand(command, callback) {
+            commandCallbacks.set(command, callback);
+            return {
+              dispose() {},
+            };
+          },
+        },
+        env: {
+          clipboard: {
+            writeText() {
+              throw new Error("clipboard should not be used");
+            },
+          },
+        },
+        window: {
+          activeTerminal: undefined,
+          createTerminal() {
+            throw new Error("terminal should not be created");
+          },
+          registerWebviewViewProvider(_viewId, provider) {
+            registeredProvider = provider;
+            return {
+              dispose() {},
+            };
+          },
+          createQuickPick() {
+            quickPickOpened = true;
+            throw new Error("malformed sidebar action should not open a picker");
+          },
+          showInputBox() {
+            throw new Error("malformed sidebar action should not prompt");
+          },
+          showQuickPick() {
+            quickPickOpened = true;
+            throw new Error("malformed sidebar action should not open quick pick");
+          },
+          showWarningMessage(message) {
+            warningMessages.push(message);
+          },
+        },
+        workspace: {
+          workspaceFolders: undefined,
+        },
+      },
+    );
+
+    const webview = {
+      html: "",
+      onDidReceiveMessage(listener: (message: unknown) => void | Promise<void>) {
+        receiveMessage = listener;
+      },
+      options: {} as { enableScripts?: boolean },
+    };
+
+    await registeredProvider?.resolveWebviewView({ webview });
+    await receiveMessage?.({
+      type: "commandVault.action",
+      action: "run",
+      target: {
+        scope: "global",
+      },
+    });
+    await commandCallbacks.get(COMMAND_VAULT_RUN_COMMAND_ID)?.();
+
+    assert.equal(quickPickOpened, false);
+    assert.deepEqual(warningMessages, []);
+  });
+
+  it("ignores global commands from sidebar inline submissions", async () => {
+    const storagePath = await mkdtemp(join(tmpdir(), "command-vault-inline-global-"));
+    let inputBoxCalls = 0;
+    let quickPickCalls = 0;
+    let registeredProvider: Parameters<CommandVaultExtensionHost["window"]["registerWebviewViewProvider"]>[1] | undefined;
+    let receiveMessage: ((message: unknown) => void | Promise<void>) | undefined;
+
+    activate(
+      createExtensionContext(storagePath),
+      createSidebarInlineHost({
+        onRegisterProvider(provider) {
+          registeredProvider = provider;
+        },
+        onShowInputBox() {
+          inputBoxCalls += 1;
+        },
+        onShowQuickPick() {
+          quickPickCalls += 1;
+        },
+        workspaceFolders: undefined,
+      }),
+    );
+
+    const webview = createWebviewHarness((listener) => {
+      receiveMessage = listener;
+    });
+
+    await registeredProvider?.resolveWebviewView({ webview });
+    await receiveMessage?.({
+      type: "commandVault.createCommand",
+      target: { scope: "global" },
+      input: {
+        name: "Lint",
+        command: "npm run lint",
+        description: "Run lint checks",
+      },
+    });
+
+    assert.equal(inputBoxCalls, 0);
+    assert.equal(quickPickCalls, 0);
+    assert.doesNotMatch(webview.html, />Lint</);
+    await assert.rejects(
+      readFile(join(storagePath, "global.json"), { encoding: "utf8" }),
+    );
+  });
+
+  it("updates workspace commands from sidebar inline edit submissions without prompts", async () => {
+    const storagePath = await mkdtemp(join(tmpdir(), "command-vault-inline-edit-workspace-"));
+    const workspacePath = "/tmp/command-vault-inline-edit-workspace";
+    const workspaceId = createWorkspaceId(workspacePath);
+    let inputBoxCalls = 0;
+    let quickPickCalls = 0;
+    let registeredProvider: Parameters<CommandVaultExtensionHost["window"]["registerWebviewViewProvider"]>[1] | undefined;
+    let receiveMessage: ((message: unknown) => void | Promise<void>) | undefined;
+
+    await mkdir(join(storagePath, "workspaces"), { recursive: true });
+    await writeFile(
+      join(storagePath, "workspaces", `${workspaceId}.json`),
+      `${JSON.stringify([
+        {
+          ...createStoredCommand(),
+          id: "workspace-1",
+          scope: "workspace",
+        },
+      ], null, 2)}\n`,
+      { encoding: "utf8" },
+    );
+
+    activate(
+      createExtensionContext(storagePath),
+      createSidebarInlineHost({
+        onRegisterProvider(provider) {
+          registeredProvider = provider;
+        },
+        onShowInputBox() {
+          inputBoxCalls += 1;
+        },
+        onShowQuickPick() {
+          quickPickCalls += 1;
+        },
+        workspaceFolders: [{ uri: { fsPath: workspacePath } }],
+      }),
+    );
+
+    const webview = createWebviewHarness((listener) => {
+      receiveMessage = listener;
+    });
+
+    await registeredProvider?.resolveWebviewView({ webview });
+    await receiveMessage?.({
+      type: "commandVault.updateCommand",
+      target: { id: "workspace-1", scope: "workspace" },
+      input: {
+        name: "Preview",
+        command: "npm run preview",
+        description: "",
+      },
+    });
+
+    const persistedCommands = JSON.parse(
+      await readFile(join(storagePath, "workspaces", `${workspaceId}.json`), {
+        encoding: "utf8",
+      }),
+    ) as Array<{ command: string; description: string | null; name: string }>;
+
+    assert.equal(inputBoxCalls, 0);
+    assert.equal(quickPickCalls, 0);
+    assert.match(webview.html, />Preview</);
+    assert.match(webview.html, /npm run preview/);
+    assert.doesNotMatch(webview.html, />Start app</);
+    assert.deepEqual(persistedCommands.map(({ name, command, description }) => ({ name, command, description })), [
+      { name: "Preview", command: "npm run preview", description: null },
+    ]);
+  });
+
+  it("creates workspace commands from sidebar inline submissions without prompts", async () => {
+    const storagePath = await mkdtemp(join(tmpdir(), "command-vault-inline-workspace-"));
+    const workspacePath = "/tmp/command-vault-inline-workspace";
+    let inputBoxCalls = 0;
+    let quickPickCalls = 0;
+    let registeredProvider: Parameters<CommandVaultExtensionHost["window"]["registerWebviewViewProvider"]>[1] | undefined;
+    let receiveMessage: ((message: unknown) => void | Promise<void>) | undefined;
+
+    activate(
+      createExtensionContext(storagePath),
+      createSidebarInlineHost({
+        onRegisterProvider(provider) {
+          registeredProvider = provider;
+        },
+        onShowInputBox() {
+          inputBoxCalls += 1;
+        },
+        onShowQuickPick() {
+          quickPickCalls += 1;
+        },
+        workspaceFolders: [{ uri: { fsPath: workspacePath } }],
+      }),
+    );
+
+    const webview = createWebviewHarness((listener) => {
+      receiveMessage = listener;
+    });
+
+    await registeredProvider?.resolveWebviewView({ webview });
+    await receiveMessage?.({
+      type: "commandVault.createCommand",
+      target: { scope: "workspace" },
+      input: {
+        name: "Test",
+        command: "npm test",
+        description: "",
+      },
+    });
+
+    const workspaceId = createWorkspaceId(workspacePath);
+    const persistedCommands = JSON.parse(
+      await readFile(join(storagePath, "workspaces", `${workspaceId}.json`), {
+        encoding: "utf8",
+      }),
+    ) as Array<{ command: string; description: string | null; name: string }>;
+
+    assert.equal(inputBoxCalls, 0);
+    assert.equal(quickPickCalls, 0);
+    assert.match(webview.html, />Test</);
+    assert.match(webview.html, /npm test/);
+    assert.deepEqual(persistedCommands.map(({ name, command, description }) => ({ name, command, description })), [
+      { name: "Test", command: "npm test", description: null },
+    ]);
   });
 
   it("routes quick-pick search run, paste, and edit actions", async () => {
@@ -306,8 +679,8 @@ describe("extension scaffold", () => {
               dispose() {},
             };
           },
-          createQuickPick() {
-            return quickPick.instance;
+          createQuickPick<Item extends { label: string }>(): QuickPickResult<Item> {
+            return quickPick.instance as unknown as QuickPickResult<Item>;
           },
           async showInputBox() {
             return inputBoxValues.shift();
@@ -323,10 +696,10 @@ describe("extension scaffold", () => {
         workspace: {
           getConfiguration() {
             return {
-              get(key, defaultValue) {
-                return key === "defaultExecutionBehavior"
+              get<T>(key: string, defaultValue: T): T {
+                return (key === "defaultExecutionBehavior"
                   ? "paste"
-                  : defaultValue;
+                  : defaultValue) as T;
               },
             };
           },
@@ -338,7 +711,7 @@ describe("extension scaffold", () => {
     const webview = {
       html: "",
       onDidReceiveMessage() {},
-      options: {},
+      options: {} as { enableScripts?: boolean },
     };
 
     await registeredProvider?.resolveWebviewView({ webview });
@@ -368,7 +741,7 @@ describe("extension scaffold", () => {
 
     const persistedCommands = JSON.parse(
       await readFile(join(storagePath, "global.json"), { encoding: "utf8" }),
-    ) as Array<{ command: string; description: string | null; name: string }>;
+    ) as Array<CommandVaultCommand>;
 
     assert.deepEqual(sendTextCalls, [
       {
@@ -380,8 +753,8 @@ describe("extension scaffold", () => {
         addNewLine: true,
       },
     ]);
-    assert.match(webview.html, />Preview app</);
-    assert.match(webview.html, /npm run preview/);
+    assert.doesNotMatch(webview.html, />Preview app</);
+    assert.doesNotMatch(webview.html, /npm run preview/);
     assert.doesNotMatch(webview.html, />Start app</);
     assert.deepEqual(persistedCommands, [
       {
@@ -486,14 +859,14 @@ describe("extension scaffold", () => {
         workspace: {
           getConfiguration() {
             return {
-              get(key, defaultValue) {
+              get<T>(key: string, defaultValue: T): T {
                 switch (key) {
                   case "defaultExecutionBehavior":
-                    return configurationState.defaultExecutionBehavior;
+                    return configurationState.defaultExecutionBehavior as T;
                   case "enableGlobalScope":
-                    return configurationState.enableGlobalScope;
+                    return configurationState.enableGlobalScope as T;
                   case "enableWorkspaceScope":
-                    return configurationState.enableWorkspaceScope;
+                    return configurationState.enableWorkspaceScope as T;
                   default:
                     return defaultValue;
                 }
@@ -514,11 +887,11 @@ describe("extension scaffold", () => {
     const webview = {
       html: "",
       onDidReceiveMessage() {},
-      options: {},
+      options: {} as { enableScripts?: boolean },
     };
 
     await registeredProvider?.resolveWebviewView({ webview });
-    assert.match(webview.html, />Start app</);
+    assert.doesNotMatch(webview.html, />Start app</);
     assert.doesNotMatch(webview.html, /Global commands disabled/);
 
     configurationState.enableGlobalScope = false;
@@ -529,7 +902,7 @@ describe("extension scaffold", () => {
     });
 
     assert.doesNotMatch(webview.html, />Start app</);
-    assert.match(webview.html, /Global commands disabled/);
+    assert.doesNotMatch(webview.html, /Global commands disabled/);
   });
 
   it("blocks quick-pick execution when the selected scope becomes disabled", async () => {
@@ -611,8 +984,8 @@ describe("extension scaffold", () => {
               dispose() {},
             };
           },
-          createQuickPick() {
-            return quickPick.instance;
+          createQuickPick<Item extends { label: string }>(): QuickPickResult<Item> {
+            return quickPick.instance as unknown as QuickPickResult<Item>;
           },
           async showInputBox() {
             return undefined;
@@ -628,14 +1001,14 @@ describe("extension scaffold", () => {
         workspace: {
           getConfiguration() {
             return {
-              get(key, defaultValue) {
+              get<T>(key: string, defaultValue: T): T {
                 switch (key) {
                   case "defaultExecutionBehavior":
-                    return configurationState.defaultExecutionBehavior;
+                    return configurationState.defaultExecutionBehavior as T;
                   case "enableGlobalScope":
-                    return configurationState.enableGlobalScope;
+                    return configurationState.enableGlobalScope as T;
                   case "enableWorkspaceScope":
-                    return configurationState.enableWorkspaceScope;
+                    return configurationState.enableWorkspaceScope as T;
                   default:
                     return defaultValue;
                 }
@@ -650,7 +1023,7 @@ describe("extension scaffold", () => {
     const webview = {
       html: "",
       onDidReceiveMessage() {},
-      options: {},
+      options: {} as { enableScripts?: boolean },
     };
 
     await registeredProvider?.resolveWebviewView({ webview });
@@ -694,11 +1067,98 @@ function createStoredCommand() {
   };
 }
 
+function createExtensionContext(storagePath: string): Parameters<typeof activate>[0] {
+  return {
+    globalStorageUri: {
+      fsPath: storagePath,
+    },
+    subscriptions: {
+      push(...items) {
+        return items.length;
+      },
+    },
+  };
+}
+
+function createWebviewHarness(
+  onReceiveMessage: (
+    listener: (message: unknown) => void | Promise<void>,
+  ) => void,
+): {
+  html: string;
+  onDidReceiveMessage(listener: (message: unknown) => void | Promise<void>): void;
+  options: { enableScripts?: boolean };
+} {
+  return {
+    html: "",
+    onDidReceiveMessage(listener) {
+      onReceiveMessage(listener);
+    },
+    options: {} as { enableScripts?: boolean },
+  };
+}
+
+function createSidebarInlineHost(options: {
+  onRegisterProvider(
+    provider: Parameters<
+      CommandVaultExtensionHost["window"]["registerWebviewViewProvider"]
+    >[1],
+  ): void;
+  onShowInputBox(): void;
+  onShowQuickPick(): void;
+  workspaceFolders: CommandVaultExtensionHost["workspace"]["workspaceFolders"];
+}): CommandVaultExtensionHost {
+  return {
+    commands: {
+      registerCommand() {
+        return {
+          dispose() {},
+        };
+      },
+    },
+    env: {
+      clipboard: {
+        async writeText() {},
+      },
+    },
+    window: {
+      activeTerminal: undefined,
+      createTerminal() {
+        throw new Error("terminal should not be created");
+      },
+      registerWebviewViewProvider(_viewId, provider) {
+        options.onRegisterProvider(provider);
+        return {
+          dispose() {},
+        };
+      },
+      createQuickPick() {
+        options.onShowQuickPick();
+        throw new Error("inline create should not open quick pick");
+      },
+      showInputBox() {
+        options.onShowInputBox();
+        throw new Error("inline create should not open input box");
+      },
+      showQuickPick() {
+        options.onShowQuickPick();
+        throw new Error("inline create should not open quick pick");
+      },
+      showWarningMessage() {
+        return undefined;
+      },
+    },
+    workspace: {
+      workspaceFolders: options.workspaceFolders,
+    },
+  };
+}
+
 function createQuickPickHarness(): {
   accept(): Promise<void>;
   instance: {
-    activeItems: readonly Array<{ label: string }>;
-    items: readonly Array<{ label: string }>;
+    activeItems: readonly { label: string }[];
+    items: readonly { label: string }[];
     matchOnDescription: boolean;
     matchOnDetail: boolean;
     placeholder: string;

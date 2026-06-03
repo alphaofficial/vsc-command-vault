@@ -1,4 +1,4 @@
-import type { CommandVaultScope } from "./command-vault/model.ts";
+import { createWorkspaceId, type CommandVaultCommand, type CommandVaultScope } from "./command-vault/model.ts";
 import {
   COMMAND_VAULT_CREATE_COMMAND_ID,
   createCommandVaultCreateService,
@@ -27,7 +27,7 @@ import {
   isCommandVaultScopeEnabled,
   readCommandVaultSettings,
 } from "./command-vault/settings.ts";
-import { createCommandVaultSidebarProvider } from "./command-vault/sidebar.ts";
+import { createCommandVaultSidebarProvider, type CommandVaultSidebarCreateCommandMessage, type CommandVaultSidebarUpdateCommandMessage } from "./command-vault/sidebar.ts";
 
 export {
   COMMAND_VAULT_COPY_COMMAND_ID,
@@ -201,18 +201,34 @@ export function activate(
   const sidebarProvider = createCommandVaultSidebarProvider({
     getSettings,
     onDidReceiveMessage: async (message) => {
+      if (message.type === "commandVault.createCommand") {
+        await handleInlineCreateCommand(message);
+        return;
+      }
+
+      if (message.type === "commandVault.updateCommand") {
+        await handleInlineUpdateCommand(message);
+        return;
+      }
+
       switch (message.action) {
         case "copy":
-          await handleCopyCommand(message.target);
+          await handleSidebarCopyCommand(message.target);
+          return;
+        case "create":
+          await handleCreateCommand(message.target?.scope);
           return;
         case "delete":
-          await handleDeleteCommand(message.target);
+          await handleSidebarDeleteCommand(message.target);
           return;
         case "edit":
-          await handleEditCommand(message.target);
+          await handleSidebarEditCommand(message.target);
+          return;
+        case "paste":
+          await handleSidebarPasteCommand(message.target);
           return;
         case "run":
-          await handleRunCommand(message.target);
+          await handleSidebarRunCommand(message.target);
           return;
       }
     },
@@ -228,6 +244,160 @@ export function activate(
     if (createdCommand) {
       await refreshSidebar();
     }
+  };
+  const handleInlineCreateCommand = async (
+    message: CommandVaultSidebarCreateCommandMessage,
+  ) => {
+    const scope = message.target.scope;
+
+    if (scope !== "workspace" || !(await validateScopeEnabled(scope))) {
+      return;
+    }
+
+    const timestamp = new Date().toISOString();
+    const commandRecord: CommandVaultCommand = {
+      id: `${scope}-${timestamp}`,
+      scope,
+      name: message.input.name,
+      command: message.input.command,
+      description:
+        message.input.description.length > 0 ? message.input.description : null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+
+    const workspaceFolderPath = resolvedHost.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+    if (!workspaceFolderPath) {
+      await resolvedHost.window.showWarningMessage(
+        "Command Vault needs an open workspace to create workspace commands.",
+      );
+      return;
+    }
+
+    const workspaceId = createWorkspaceId(workspaceFolderPath);
+    const commands = await repository.readWorkspaceCommands(workspaceId);
+    await repository.writeWorkspaceCommands(workspaceId, [...commands, commandRecord]);
+    await refreshSidebar();
+  };
+  const handleInlineUpdateCommand = async (
+    message: CommandVaultSidebarUpdateCommandMessage,
+  ) => {
+    if (message.target.scope !== "workspace" || !(await validateScopeEnabled(message.target.scope))) {
+      return;
+    }
+
+    const workspaceFolderPath = resolvedHost.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+    if (!workspaceFolderPath) {
+      await resolvedHost.window.showWarningMessage(
+        "Command Vault needs an open workspace to edit workspace commands.",
+      );
+      return;
+    }
+
+    const workspaceId = createWorkspaceId(workspaceFolderPath);
+    const commands = await repository.readWorkspaceCommands(workspaceId);
+    let updated = false;
+    const updatedCommands = commands.map((command) => {
+      if (command.id !== message.target.id) {
+        return command;
+      }
+
+      updated = true;
+      return {
+        ...command,
+        name: message.input.name,
+        command: message.input.command,
+        description:
+          message.input.description.length > 0 ? message.input.description : null,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    if (!updated) {
+      return;
+    }
+
+    await repository.writeWorkspaceCommands(workspaceId, updatedCommands);
+    await refreshSidebar();
+  };
+  const resolveSidebarCommandTarget = (
+    target:
+      | {
+          id?: string;
+          scope: CommandVaultScope;
+        }
+      | undefined,
+  ) => {
+    if (!target?.id) {
+      return undefined;
+    }
+
+    return {
+      id: target.id,
+      scope: target.scope,
+    };
+  };
+  const handleSidebarEditCommand = async (target?: {
+    id?: string;
+    scope: CommandVaultScope;
+  }) => {
+    const commandTarget = resolveSidebarCommandTarget(target);
+
+    if (!commandTarget) {
+      return;
+    }
+
+    await handleEditCommand(commandTarget);
+  };
+  const handleSidebarDeleteCommand = async (target?: {
+    id?: string;
+    scope: CommandVaultScope;
+  }) => {
+    const commandTarget = resolveSidebarCommandTarget(target);
+
+    if (!commandTarget) {
+      return;
+    }
+
+    await handleDeleteCommand(commandTarget);
+  };
+  const handleSidebarRunCommand = async (target?: {
+    id?: string;
+    scope: CommandVaultScope;
+  }) => {
+    const commandTarget = resolveSidebarCommandTarget(target);
+
+    if (!commandTarget) {
+      return;
+    }
+
+    await handleRunCommand(commandTarget);
+  };
+  const handleSidebarPasteCommand = async (target?: {
+    id?: string;
+    scope: CommandVaultScope;
+  }) => {
+    const commandTarget = resolveSidebarCommandTarget(target);
+
+    if (!commandTarget) {
+      return;
+    }
+
+    await handlePasteCommand(commandTarget);
+  };
+  const handleSidebarCopyCommand = async (target?: {
+    id?: string;
+    scope: CommandVaultScope;
+  }) => {
+    const commandTarget = resolveSidebarCommandTarget(target);
+
+    if (!commandTarget) {
+      return;
+    }
+
+    await handleCopyCommand(commandTarget);
   };
   const handleEditCommand = async (target?: {
     id: string;
@@ -268,6 +438,26 @@ export function activate(
     }
 
     await execution.runCommand(command);
+  };
+  const handlePasteCommand = async (target?: {
+    id: string;
+    scope: CommandVaultScope;
+  }) => {
+    if (!(await validateScopeEnabled(target?.scope))) {
+      return;
+    }
+
+    const command = await resolveStoredCommandForAction("paste", target, {
+      repository,
+      window: resolvedHost.window,
+      workspace: resolvedHost.workspace,
+    });
+
+    if (!command) {
+      return;
+    }
+
+    await execution.pasteCommand(command);
   };
   const handleCopyCommand = async (target?: {
     id: string;

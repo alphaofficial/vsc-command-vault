@@ -17,6 +17,7 @@ const {
   COMMAND_VAULT_VIEW_ID,
   deactivate,
 } = require("../out/extension.js");
+const { createWorkspaceId } = require("../out/command-vault/model.js");
 
 test("compiled extension exports the scaffold identifiers", () => {
   assert.equal(COMMAND_VAULT_EXTENSION_NAME, "Command Vault");
@@ -37,6 +38,8 @@ test("compiled activation hooks are callable", () => {
 
 test("compiled activation routes sidebar actions to execution handlers", async () => {
   const storagePath = await mkdtemp(join(tmpdir(), "command-vault-extension-"));
+  const workspacePath = "/tmp/command-vault-compiled-sidebar-actions";
+  const workspaceId = createWorkspaceId(workspacePath);
   const subscriptions = [];
   const registrations = [];
   const clipboardWrites = [];
@@ -48,8 +51,14 @@ test("compiled activation routes sidebar actions to execution handlers", async (
 
   await mkdir(join(storagePath, "workspaces"), { recursive: true });
   await writeFile(
-    join(storagePath, "global.json"),
-    `${JSON.stringify([createStoredCommand()], null, 2)}\n`,
+    join(storagePath, "workspaces", `${workspaceId}.json`),
+    `${JSON.stringify([
+      {
+        ...createStoredCommand(),
+        id: "workspace-1",
+        scope: "workspace",
+      },
+    ], null, 2)}\n`,
     { encoding: "utf8" },
   );
 
@@ -131,7 +140,7 @@ test("compiled activation routes sidebar actions to execution handlers", async (
         },
       },
       workspace: {
-        workspaceFolders: undefined,
+        workspaceFolders: [{ uri: { fsPath: workspacePath } }],
       },
     },
   );
@@ -149,16 +158,16 @@ test("compiled activation routes sidebar actions to execution handlers", async (
     type: "commandVault.action",
     action: "copy",
     target: {
-      id: "global-1",
-      scope: "global",
+      id: "workspace-1",
+      scope: "workspace",
     },
   });
   await receiveMessage({
     type: "commandVault.action",
     action: "run",
     target: {
-      id: "global-1",
-      scope: "global",
+      id: "workspace-1",
+      scope: "workspace",
     },
   });
 
@@ -317,8 +326,8 @@ test("compiled activation routes quick-pick search actions", async () => {
       addNewLine: true,
     },
   ]);
-  assert.match(webview.html, />Preview app</);
-  assert.match(webview.html, /npm run preview/);
+  assert.doesNotMatch(webview.html, />Preview app</);
+  assert.doesNotMatch(webview.html, /npm run preview/);
   assert.doesNotMatch(webview.html, />Start app</);
   assert.deepEqual(persistedCommands, [
     {
@@ -439,7 +448,7 @@ test("compiled activation refreshes the sidebar when settings change", async () 
   };
 
   await registeredProvider.resolveWebviewView({ webview });
-  assert.match(webview.html, />Start app</);
+  assert.doesNotMatch(webview.html, />Start app</);
   assert.doesNotMatch(webview.html, /Global commands disabled/);
 
   configurationState.enableGlobalScope = false;
@@ -450,7 +459,7 @@ test("compiled activation refreshes the sidebar when settings change", async () 
   });
 
   assert.doesNotMatch(webview.html, />Start app</);
-  assert.match(webview.html, /Global commands disabled/);
+  assert.doesNotMatch(webview.html, /Global commands disabled/);
 });
 
 test("compiled activation blocks quick-pick execution when a scope becomes disabled", async () => {

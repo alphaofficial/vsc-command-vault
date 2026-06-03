@@ -1,9 +1,9 @@
 {
   "name": "vsc-snippet-catalog",
-  "displayName": "Command Vault",
-  "description": "VS Code extension scaffold for the Command Vault MVP.",
+  "displayName": "CommandVault",
+  "description": "VS Code extension for managing command snippets",
   "version": "0.0.1",
-  "publisher": "albertmacmini",
+  "publisher": "alphaxsalt",
   "private": true,
   "engines": {
     "vscode": "^1.96.0"
@@ -13,13 +13,6 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onView:commandVault.commands",
-    "onCommand:commandVault.createCommand",
-    "onCommand:commandVault.copyCommand",
-    "onCommand:commandVault.editCommand",
-    "onCommand:commandVault.deleteCommand",
-    "onCommand:commandVault.runCommand",
-    "onCommand:commandVault.searchCommands",
     "onCommand:commandVault.searchCommands.alternateExecution"
   ],
   "main": "./out/extension.js",
@@ -37,7 +30,8 @@
       "commandVault": [
         {
           "id": "commandVault.commands",
-          "name": "Commands"
+          "name": "Commands",
+          "type": "webview"
         }
       ]
     },
