@@ -58,8 +58,8 @@ describe("command vault create-command service", () => {
     assert.deepEqual(window.quickPickLabelsSeen, [["Workspace", "Global"]]);
     assert.deepEqual(repository.writeGlobalCommandsCalls, [
       [
-        repository.globalCommands[0],
         createdCommand,
+        repository.globalCommands[0],
       ],
     ]);
     assert.deepEqual(repository.writeWorkspaceCommandsCalls, []);
@@ -123,8 +123,8 @@ describe("command vault create-command service", () => {
     assert.deepEqual(repository.writeWorkspaceCommandsCalls, [
       {
         commands: [
-          repository.workspaceCommands[0],
           createdCommand,
+          repository.workspaceCommands[0],
         ],
         workspaceId: createWorkspaceId(workspacePath),
       },

@@ -146,7 +146,7 @@ export function createCommandVaultCreateService(
 
       if (scope === "global") {
         const commands = await options.repository.readGlobalCommands();
-        await options.repository.writeGlobalCommands([...commands, commandRecord]);
+        await options.repository.writeGlobalCommands([commandRecord, ...commands]);
         return commandRecord;
       }
 
@@ -165,8 +165,8 @@ export function createCommandVaultCreateService(
       const commands = await options.repository.readWorkspaceCommands(workspaceId);
 
       await options.repository.writeWorkspaceCommands(workspaceId, [
-        ...commands,
         commandRecord,
+        ...commands,
       ]);
 
       return commandRecord;

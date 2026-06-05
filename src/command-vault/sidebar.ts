@@ -61,6 +61,8 @@ export type CommandVaultSidebarAction =
   | "create"
   | "delete"
   | "edit"
+  | "export"
+  | "import"
   | "paste"
   | "run";
 
@@ -390,10 +392,16 @@ export function renderCommandVaultSidebarHtml(
 
       .action-icon {
         display: inline-grid;
-        width: 24px;
+        min-width: 24px;
         height: 24px;
         place-items: center;
         font-size: 24px;
+      }
+
+      .action-text {
+        font-size: calc(var(--vscode-font-size) * 0.85);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
       }
 
       .command-action .action-icon {
@@ -474,6 +482,8 @@ export function renderCommandVaultSidebarHtml(
           <h2 class="section-title" id="workspace-heading">Workspace</h2>
         </div>
         <div class="sidebar-toolbar-actions">
+          ${renderSidebarActionButton("Export commands", "export", undefined, false, "secondary")}
+          ${renderSidebarActionButton("Import commands", "import", undefined, false, "secondary")}
           ${renderSidebarActionButton("Create command", "create", undefined, !canCreateCommand(state))}
         </div>
       </header>
@@ -685,7 +695,7 @@ function renderSectionState(
 
 function renderSidebarActionButton(
   label: string,
-  action: "create",
+  action: "create" | "export" | "import",
   scope?: CommandVaultCommand["scope"],
   disabled?: boolean,
   variant?: "secondary",
@@ -701,7 +711,7 @@ function renderSidebarActionButton(
     ` aria-label="${escapeHtmlAttribute(label)}"`,
     disabled ? " disabled" : "",
     ` title="${escapeHtmlAttribute(label)}">`,
-    `<span aria-hidden="true" class="action-icon">${escapeHtml(icon)}</span>`,
+    `<span aria-hidden="true" class="${action === "export" || action === "import" ? "action-text" : "action-icon"}">${escapeHtml(icon)}</span>`,
     "</button>",
   ].join("");
 }
@@ -818,6 +828,10 @@ function getCommandActionIcon(action: CommandVaultSidebarAction): string {
       return "⌫";
     case "edit":
       return "✎";
+    case "export":
+      return "Export";
+    case "import":
+      return "Import";
     case "paste":
       return "⇥";
     case "run":
@@ -855,6 +869,13 @@ function parseCommandVaultSidebarActionMessage(
 
   if (action === "cancel-form" || action === "create") {
     return undefined;
+  }
+
+  if (action === "export" || action === "import") {
+    return {
+      type: "commandVault.action",
+      action,
+    };
   }
 
   if (
@@ -965,6 +986,8 @@ function isCommandVaultSidebarAction(
     value === "create" ||
     value === "delete" ||
     value === "edit" ||
+    value === "export" ||
+    value === "import" ||
     value === "paste" ||
     value === "run"
   );
