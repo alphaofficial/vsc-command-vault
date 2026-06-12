@@ -104,6 +104,24 @@ Command records are stored as JSON files:
 
 Each workspace is identified by a SHA-256 hash of its root path, ensuring isolation between projects. On load, records are validated; malformed or invalid entries are reported as warnings and skipped.
 
+## Import / Export
+
+Command Vault imports and exports commands as JSON files only. The export save dialog defaults to a filename like `command-vault-export-2026-06-11.json` (today's date in your local calendar) and keeps the `*.json` filter, and the import dialog filters to `*.json` as well. If a non-JSON file is selected during import, Command Vault shows a warning and does not write to storage.
+
+### Payload shape
+
+```json
+{
+  "version": "1.0",
+  "exportedAt": "2026-06-11T14:30:00.000Z",
+  "commands": []
+}
+```
+
+- `version` — the payload schema version (currently `"1.0"`).
+- `exportedAt` — the ISO-8601 timestamp captured when the export was created.
+- `commands` — the saved command records; global and workspace commands are merged into a single array.
+
 ## TypeScript
 
 The extension is written in TypeScript with full type coverage across the core domain model, repository layer, sidebar webview, and extension host interface.
