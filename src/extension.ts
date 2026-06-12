@@ -1,6 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
-
-import { createWorkspaceId, validatePersistedCommandRecords, type CommandVaultCommand, type CommandVaultScope } from "./command-vault/model.ts";
+import { createWorkspaceId, type CommandVaultCommand, type CommandVaultScope } from "./command-vault/model.ts";
 import {
   COMMAND_VAULT_CREATE_COMMAND_ID,
   createCommandVaultCreateService,
@@ -16,6 +14,7 @@ import {
   createCommandVaultExecutionService,
   resolveStoredCommandForAction,
 } from "./command-vault/execution.ts";
+import { createCommandVaultImportExportService } from "./command-vault/import-export.ts";
 import { createCommandVaultRepository } from "./command-vault/repository.ts";
 import {
   COMMAND_VAULT_SEARCH_COMMAND_ID,
@@ -215,6 +214,11 @@ export function activate(
     },
     workspace: resolvedHost.workspace,
   });
+  const importExport = createCommandVaultImportExportService({
+    repository,
+    window: resolvedHost.window,
+    workspace: resolvedHost.workspace,
+  });
   const sidebarProvider = createCommandVaultSidebarProvider({
     getSettings,
     onDidReceiveMessage: async (message) => {
@@ -304,129 +308,11 @@ export function activate(
     await refreshSidebar();
   };
   const handleExportCommands = async () => {
-    const showSaveDialog = resolvedHost.window.showSaveDialog;
-
-    if (!showSaveDialog) {
-      await resolvedHost.window.showWarningMessage(
-        "Command Vault export requires save dialog support.",
-      );
-      return;
-    }
-
-    const fileUri = await showSaveDialog({
-      title: "Export Command Vault Commands",
-      saveLabel: "Export",
-      filters: { JSON: ["json"] },
-    });
-
-    if (!fileUri) {
-      return;
-    }
-
-    const workspaceFolderPath = resolvedHost.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const workspaceId = workspaceFolderPath ? createWorkspaceId(workspaceFolderPath) : null;
-    const [globalCommands, workspaceCommands] = await Promise.all([
-      repository.readGlobalCommands(),
-      repository.readWorkspaceCommands(workspaceId),
-    ]);
-    const exportPayload = {
-      version: "1.0",
-      exportedAt: new Date().toISOString(),
-      commands: [...globalCommands, ...workspaceCommands],
-    };
-
-    await writeFile(fileUri.fsPath, `${JSON.stringify(exportPayload, null, 2)}\n`, {
-      encoding: "utf8",
-    });
-    await resolvedHost.window.showInformationMessage?.(
-      `Command Vault exported ${exportPayload.commands.length} command${exportPayload.commands.length === 1 ? "" : "s"}.`,
-    );
+    await importExport.exportCommands();
   };
   const handleImportCommands = async () => {
-    const showOpenDialog = resolvedHost.window.showOpenDialog;
-
-    if (!showOpenDialog) {
-      await resolvedHost.window.showWarningMessage(
-        "Command Vault import requires open dialog support.",
-      );
-      return;
-    }
-
-    const fileUris = await showOpenDialog({
-      title: "Import Command Vault Commands",
-      openLabel: "Import",
-      canSelectFiles: true,
-      canSelectFolders: false,
-      canSelectMany: false,
-      filters: { JSON: ["json"] },
-    });
-    const fileUri = fileUris?.[0];
-
-    if (!fileUri) {
-      return;
-    }
-
-    let parsed: unknown;
-
-    try {
-      parsed = JSON.parse(await readFile(fileUri.fsPath, { encoding: "utf8" })) as unknown;
-    } catch (error) {
-      await resolvedHost.window.showWarningMessage(
-        `Command Vault could not import JSON. ${getErrorMessage(error)}`,
-      );
-      return;
-    }
-
-    const importedValue = isPlainObject(parsed) && "commands" in parsed ? parsed.commands : parsed;
-    const validation = validatePersistedCommandRecords(importedValue, "import.commands");
-
-    if (validation.issues.length > 0) {
-      await resolvedHost.window.showWarningMessage(
-        `Command Vault ignored ${validation.issues.length} invalid import issue${validation.issues.length === 1 ? "" : "s"}.`,
-      );
-    }
-
-    if (validation.valid.length === 0) {
-      await resolvedHost.window.showWarningMessage(
-        "Command Vault did not find any valid commands to import.",
-      );
-      return;
-    }
-
-    const workspaceFolderPath = resolvedHost.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const workspaceId = workspaceFolderPath ? createWorkspaceId(workspaceFolderPath) : null;
-    const globalImports = validation.valid.filter((command) => command.scope === "global");
-    const workspaceImports = validation.valid.filter((command) => command.scope === "workspace");
-    const importedCount = await mergeImportedCommands(globalImports, workspaceImports, workspaceId);
-
+    await importExport.importCommands();
     await refreshSidebar();
-    await resolvedHost.window.showInformationMessage?.(
-      `Command Vault imported ${importedCount} command${importedCount === 1 ? "" : "s"}.`,
-    );
-  };
-  const mergeImportedCommands = async (
-    globalImports: readonly CommandVaultCommand[],
-    workspaceImports: readonly CommandVaultCommand[],
-    workspaceId: string | null,
-  ): Promise<number> => {
-    const globalCommands = await repository.readGlobalCommands();
-    const mergedGlobalCommands = mergeCommands(globalImports, globalCommands);
-    await repository.writeGlobalCommands(mergedGlobalCommands);
-
-    let importedCount = mergedGlobalCommands.length - globalCommands.length;
-
-    if (workspaceId) {
-      const workspaceCommands = await repository.readWorkspaceCommands(workspaceId);
-      const mergedWorkspaceCommands = mergeCommands(workspaceImports, workspaceCommands);
-      await repository.writeWorkspaceCommands(workspaceId, mergedWorkspaceCommands);
-      importedCount += mergedWorkspaceCommands.length - workspaceCommands.length;
-    } else if (workspaceImports.length > 0) {
-      await resolvedHost.window.showWarningMessage(
-        "Command Vault skipped workspace commands because no workspace is open.",
-      );
-    }
-
-    return importedCount;
   };
   const handleInlineUpdateCommand = async (
     message: CommandVaultSidebarUpdateCommandMessage,
@@ -757,30 +643,4 @@ export function deactivate(): void {
 function loadDefaultExtensionHost(): CommandVaultExtensionHost {
   const vscode = require("vscode") as CommandVaultExtensionHost;
   return vscode;
-}
-
-function mergeCommands(
-  importedCommands: readonly CommandVaultCommand[],
-  existingCommands: readonly CommandVaultCommand[],
-): CommandVaultCommand[] {
-  const existingIds = new Set(existingCommands.map((command) => command.id));
-  const uniqueImportedCommands = importedCommands.filter(
-    (command) => !existingIds.has(command.id),
-  );
-
-  return [...uniqueImportedCommands, ...existingCommands];
-}
-
-function isPlainObject(
-  value: unknown,
-): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-
-  return "Unknown error.";
 }
