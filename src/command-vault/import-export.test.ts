@@ -5,6 +5,7 @@ import type { CommandVaultCommand } from "./model.ts";
 import {
   COMMAND_VAULT_EXPORT_FILENAME_PREFIX,
   buildDefaultExportFilename,
+  createCommandVaultImportExportService,
   isJsonFilePath,
   mergeImportedCommands,
 } from "./import-export.ts";
@@ -24,6 +25,19 @@ describe("command vault import-export helpers", () => {
     );
 
     assert.equal(filename, `${COMMAND_VAULT_EXPORT_FILENAME_PREFIX}-2026-01-03.json`);
+  });
+
+  it("includes today's local date and the .json extension when no date is provided", () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    const expected = `${COMMAND_VAULT_EXPORT_FILENAME_PREFIX}-${year}-${month}-${day}.json`;
+
+    const filename = buildDefaultExportFilename();
+
+    assert.equal(filename, expected);
+    assert.match(filename, /\.json$/);
   });
 
   it("accepts .json extensions case-insensitively", () => {
@@ -73,6 +87,113 @@ describe("command vault import-export helpers", () => {
     ]);
   });
 });
+
+describe("command vault import-export service", () => {
+  it("rejects non-JSON import selections with a warning and no storage writes", async () => {
+    const repository = createRepositoryRecorder();
+    const warningMessages: string[] = [];
+    let showSaveDialogCalls = 0;
+    let showOpenDialogCalls = 0;
+    const nonJsonFilePath = "/tmp/command-vault-import/external.txt";
+
+    const service = createCommandVaultImportExportService({
+      now() {
+        return "2026-06-12T00:00:00.000Z";
+      },
+      repository,
+      window: {
+        async showOpenDialog() {
+          showOpenDialogCalls += 1;
+          return [{ fsPath: nonJsonFilePath }];
+        },
+        async showSaveDialog() {
+          showSaveDialogCalls += 1;
+          return undefined;
+        },
+        showWarningMessage(message) {
+          warningMessages.push(message);
+        },
+        showInformationMessage() {
+          throw new Error("information message should not be shown for non-JSON imports");
+        },
+      },
+      workspace: {
+        workspaceFolders: [
+          {
+            uri: {
+              fsPath: "/tmp/command-vault-import",
+            },
+          },
+        ],
+      },
+    });
+
+    await service.importCommands();
+
+    assert.equal(showOpenDialogCalls, 1);
+    assert.equal(showSaveDialogCalls, 0);
+    assert.deepEqual(warningMessages, [
+      "Command Vault import only accepts JSON files.",
+    ]);
+    assert.deepEqual(repository.readGlobalCommandsCalls, 0);
+    assert.deepEqual(repository.readWorkspaceCommandsCalls, []);
+    assert.deepEqual(repository.writeGlobalCommandsCalls, []);
+    assert.deepEqual(repository.writeWorkspaceCommandsCalls, []);
+  });
+});
+
+function createRepositoryRecorder(): {
+  readGlobalCommandsCalls: number;
+  readWorkspaceCommandsCalls: Array<string | null>;
+  writeGlobalCommandsCalls: CommandVaultCommand[][];
+  writeWorkspaceCommandsCalls: Array<{
+    commands: CommandVaultCommand[];
+    workspaceId: string;
+  }>;
+  readGlobalCommands(): Promise<CommandVaultCommand[]>;
+  readWorkspaceCommands(workspaceId: string | null): Promise<CommandVaultCommand[]>;
+  writeGlobalCommands(commands: readonly CommandVaultCommand[]): Promise<void>;
+  writeWorkspaceCommands(
+    workspaceId: string,
+    commands: readonly CommandVaultCommand[],
+  ): Promise<void>;
+} {
+  let readGlobalCommandsCalls = 0;
+  const readWorkspaceCommandsCalls: Array<string | null> = [];
+  const writeGlobalCommandsCalls: CommandVaultCommand[][] = [];
+  const writeWorkspaceCommandsCalls: Array<{
+    commands: CommandVaultCommand[];
+    workspaceId: string;
+  }> = [];
+
+  return {
+    get readGlobalCommandsCalls() {
+      return readGlobalCommandsCalls;
+    },
+    readWorkspaceCommandsCalls,
+    writeGlobalCommandsCalls,
+    writeWorkspaceCommandsCalls,
+    async readGlobalCommands() {
+      readGlobalCommandsCalls += 1;
+      throw new Error("storage should not be read for non-JSON import selections");
+    },
+    async readWorkspaceCommands(workspaceId) {
+      readWorkspaceCommandsCalls.push(workspaceId);
+      throw new Error("storage should not be read for non-JSON import selections");
+    },
+    async writeGlobalCommands(commands) {
+      writeGlobalCommandsCalls.push([...commands]);
+      throw new Error("storage should not be written for non-JSON import selections");
+    },
+    async writeWorkspaceCommands(workspaceId, commands) {
+      writeWorkspaceCommandsCalls.push({
+        workspaceId,
+        commands: [...commands],
+      });
+      throw new Error("storage should not be written for non-JSON import selections");
+    },
+  };
+}
 
 function createCommand(
   id: string,
