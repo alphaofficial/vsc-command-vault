@@ -1053,6 +1053,307 @@ describe("extension scaffold", () => {
       "Command Vault global commands are disabled in settings.",
     ]);
   });
+
+  it("routes sidebar export and import actions to the import-export service", async () => {
+    const storagePath = await mkdtemp(
+      join(tmpdir(), "command-vault-sidebar-export-import-"),
+    );
+    const saveDialogCalls: Array<{
+      defaultUri?: { fsPath: string };
+      filters?: Record<string, string[]>;
+    }> = [];
+    const openDialogCalls: Array<{
+      filters?: Record<string, string[]>;
+    }> = [];
+    const warningMessages: string[] = [];
+    let showSaveDialogCalls = 0;
+    let showOpenDialogCalls = 0;
+    let showInputBoxCalls = 0;
+    let showQuickPickCalls = 0;
+    let registeredProvider:
+      | Parameters<
+          CommandVaultExtensionHost["window"]["registerWebviewViewProvider"]
+        >[1]
+      | undefined;
+    let receiveMessage:
+      | ((message: unknown) => void | Promise<void>)
+      | undefined;
+
+    activate(
+      createExtensionContext(storagePath),
+      {
+        commands: {
+          registerCommand() {
+            return {
+              dispose() {},
+            };
+          },
+        },
+        env: {
+          clipboard: {
+            writeText() {
+              throw new Error("clipboard should not be used");
+            },
+          },
+        },
+        window: {
+          activeTerminal: undefined,
+          createTerminal() {
+            throw new Error("terminal should not be created");
+          },
+          registerWebviewViewProvider(_viewId, provider) {
+            registeredProvider = provider;
+            return {
+              dispose() {},
+            };
+          },
+          createQuickPick() {
+            throw new Error("search should not be used");
+          },
+          async showInputBox() {
+            showInputBoxCalls += 1;
+            throw new Error("input box should not be used");
+          },
+          async showOpenDialog(options) {
+            showOpenDialogCalls += 1;
+            openDialogCalls.push({ filters: options.filters });
+            return undefined;
+          },
+          async showSaveDialog(options) {
+            showSaveDialogCalls += 1;
+            saveDialogCalls.push({
+              defaultUri: options.defaultUri,
+              filters: options.filters,
+            });
+            return undefined;
+          },
+          async showQuickPick() {
+            showQuickPickCalls += 1;
+            throw new Error("quick pick should not be used");
+          },
+          showWarningMessage(message) {
+            warningMessages.push(message);
+            return undefined;
+          },
+        },
+        workspace: {
+          workspaceFolders: undefined,
+        },
+      },
+    );
+
+    const webview = createWebviewHarness((listener) => {
+      receiveMessage = listener;
+    });
+
+    await registeredProvider?.resolveWebviewView({ webview });
+    await receiveMessage?.({
+      type: "commandVault.action",
+      action: "export",
+    });
+    await receiveMessage?.({
+      type: "commandVault.action",
+      action: "import",
+    });
+
+    assert.equal(showSaveDialogCalls, 1);
+    assert.equal(showOpenDialogCalls, 1);
+    assert.equal(showInputBoxCalls, 0);
+    assert.equal(showQuickPickCalls, 0);
+    assert.deepEqual(warningMessages, []);
+
+    const saveCall = saveDialogCalls[0];
+    assert.match(
+      saveCall?.defaultUri?.fsPath ?? "",
+      /^command-vault-export-\d{4}-\d{2}-\d{2}\.json$/,
+    );
+    assert.deepEqual(saveCall?.filters, { JSON: ["json"] });
+    assert.deepEqual(openDialogCalls[0]?.filters, { JSON: ["json"] });
+  });
+
+  it("round-trips commands through the export and import sidebar flows", async () => {
+    const storagePath = await mkdtemp(
+      join(tmpdir(), "command-vault-sidebar-roundtrip-"),
+    );
+    const workspacePath = "/tmp/command-vault-sidebar-roundtrip-workspace";
+    const workspaceId = createWorkspaceId(workspacePath);
+    const exportDir = await mkdtemp(
+      join(tmpdir(), "command-vault-sidebar-roundtrip-export-"),
+    );
+    const exportFilePath = join(
+      exportDir,
+      "command-vault-export-test.json",
+    );
+
+    const globalCommands: CommandVaultCommand[] = [
+      {
+        id: "global-1",
+        scope: "global",
+        name: "Build",
+        command: "npm run build",
+        description: "Compile the project",
+        createdAt: "2026-06-01T00:00:00.000Z",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+      },
+      {
+        id: "global-2",
+        scope: "global",
+        name: "Test",
+        command: "npm test",
+        description: null,
+        createdAt: "2026-06-01T00:00:00.000Z",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+      },
+    ];
+    const workspaceCommands: CommandVaultCommand[] = [
+      {
+        id: "workspace-1",
+        scope: "workspace",
+        name: "Lint",
+        command: "npm run lint",
+        description: "Run lint checks",
+        createdAt: "2026-06-01T00:00:00.000Z",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+      },
+    ];
+
+    await mkdir(join(storagePath, "workspaces"), { recursive: true });
+    await writeFile(
+      join(storagePath, "global.json"),
+      `${JSON.stringify(globalCommands, null, 2)}\n`,
+      { encoding: "utf8" },
+    );
+    await writeFile(
+      join(storagePath, "workspaces", `${workspaceId}.json`),
+      `${JSON.stringify(workspaceCommands, null, 2)}\n`,
+      { encoding: "utf8" },
+    );
+
+    const warningMessages: string[] = [];
+    let registeredProvider:
+      | Parameters<
+          CommandVaultExtensionHost["window"]["registerWebviewViewProvider"]
+        >[1]
+      | undefined;
+    let receiveMessage:
+      | ((message: unknown) => void | Promise<void>)
+      | undefined;
+
+    activate(
+      createExtensionContext(storagePath),
+      {
+        commands: {
+          registerCommand() {
+            return {
+              dispose() {},
+            };
+          },
+        },
+        env: {
+          clipboard: {
+            writeText() {
+              throw new Error("clipboard should not be used");
+            },
+          },
+        },
+        window: {
+          activeTerminal: undefined,
+          createTerminal() {
+            throw new Error("terminal should not be created");
+          },
+          registerWebviewViewProvider(_viewId, provider) {
+            registeredProvider = provider;
+            return {
+              dispose() {},
+            };
+          },
+          createQuickPick() {
+            throw new Error("search should not be used");
+          },
+          async showInputBox() {
+            throw new Error("input box should not be used");
+          },
+          async showOpenDialog() {
+            return [{ fsPath: exportFilePath }];
+          },
+          async showSaveDialog() {
+            return { fsPath: exportFilePath };
+          },
+          async showQuickPick() {
+            throw new Error("quick pick should not be used");
+          },
+          showWarningMessage(message) {
+            warningMessages.push(message);
+            return undefined;
+          },
+        },
+        workspace: {
+          workspaceFolders: [{ uri: { fsPath: workspacePath } }],
+        },
+      },
+    );
+
+    const webview = createWebviewHarness((listener) => {
+      receiveMessage = listener;
+    });
+
+    await registeredProvider?.resolveWebviewView({ webview });
+
+    await receiveMessage?.({
+      type: "commandVault.action",
+      action: "export",
+    });
+
+    const exportedContents = await readFile(exportFilePath, {
+      encoding: "utf8",
+    });
+    const exportedPayload = JSON.parse(exportedContents) as {
+      version: string;
+      exportedAt: string;
+      commands: CommandVaultCommand[];
+    };
+
+    assert.equal(exportedPayload.version, "1.0");
+    assert.equal(typeof exportedPayload.exportedAt, "string");
+    assert.deepEqual(
+      exportedPayload.commands.map((command) => command.id),
+      ["global-1", "global-2", "workspace-1"],
+    );
+
+    await writeFile(join(storagePath, "global.json"), "[]\n", {
+      encoding: "utf8",
+    });
+    await writeFile(
+      join(storagePath, "workspaces", `${workspaceId}.json`),
+      "[]\n",
+      { encoding: "utf8" },
+    );
+
+    await receiveMessage?.({
+      type: "commandVault.action",
+      action: "import",
+    });
+
+    const restoredGlobal = JSON.parse(
+      await readFile(join(storagePath, "global.json"), { encoding: "utf8" }),
+    ) as CommandVaultCommand[];
+    const restoredWorkspace = JSON.parse(
+      await readFile(
+        join(storagePath, "workspaces", `${workspaceId}.json`),
+        { encoding: "utf8" },
+      ),
+    ) as CommandVaultCommand[];
+
+    assert.deepEqual(
+      restoredGlobal.map((command) => command.id),
+      ["global-1", "global-2"],
+    );
+    assert.deepEqual(
+      restoredWorkspace.map((command) => command.id),
+      ["workspace-1"],
+    );
+    assert.deepEqual(warningMessages, []);
+  });
 });
 
 function createStoredCommand() {
