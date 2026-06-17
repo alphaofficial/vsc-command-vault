@@ -10,8 +10,6 @@ describe("command vault settings", () => {
   it("uses the MVP defaults when the workspace configuration is unavailable", () => {
     assert.deepEqual(readCommandVaultSettings(), {
       defaultExecutionBehavior: "run",
-      enableGlobalScope: true,
-      enableWorkspaceScope: true,
     });
   });
 
@@ -25,10 +23,6 @@ describe("command vault settings", () => {
             switch (key) {
               case "defaultExecutionBehavior":
                 return "paste" as T;
-              case "enableGlobalScope":
-                return false as T;
-              case "enableWorkspaceScope":
-                return true as T;
               default:
                 return defaultValue;
             }
@@ -40,8 +34,6 @@ describe("command vault settings", () => {
     assert.deepEqual(requestedSections, [COMMAND_VAULT_CONFIGURATION_SECTION]);
     assert.deepEqual(settings, {
       defaultExecutionBehavior: "paste",
-      enableGlobalScope: false,
-      enableWorkspaceScope: true,
     });
   });
 
@@ -53,10 +45,6 @@ describe("command vault settings", () => {
             switch (key) {
               case "defaultExecutionBehavior":
                 return "launch" as T;
-              case "enableGlobalScope":
-                return "nope" as T;
-              case "enableWorkspaceScope":
-                return 0 as T;
               default:
                 return defaultValue;
             }
@@ -67,8 +55,6 @@ describe("command vault settings", () => {
 
     assert.deepEqual(settings, {
       defaultExecutionBehavior: "run",
-      enableGlobalScope: true,
-      enableWorkspaceScope: true,
     });
   });
 });

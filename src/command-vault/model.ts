@@ -1,14 +1,9 @@
 import { createHash } from "node:crypto";
 
-export const COMMAND_VAULT_GLOBAL_STORAGE_FILE = "global.json";
 export const COMMAND_VAULT_WORKSPACES_STORAGE_DIR = "workspaces";
-export const COMMAND_VAULT_SCOPE_VALUES = ["global", "workspace"] as const;
-
-export type CommandVaultScope = (typeof COMMAND_VAULT_SCOPE_VALUES)[number];
 
 export interface CommandVaultCommand {
   id: string;
-  scope: CommandVaultScope;
   name: string;
   command: string;
   description: string | null;
@@ -37,13 +32,6 @@ export interface PersistedCommandsValidationResult {
   issues: CommandValidationIssue[];
 }
 
-export function isCommandVaultScope(value: unknown): value is CommandVaultScope {
-  return (
-    typeof value === "string" &&
-    COMMAND_VAULT_SCOPE_VALUES.includes(value as CommandVaultScope)
-  );
-}
-
 export function createWorkspaceId(workspaceFolderPath: string): string {
   return createHash("sha256").update(workspaceFolderPath).digest("hex");
 }
@@ -65,7 +53,6 @@ export function validateCommandRecord(
 
   const issues: CommandValidationIssue[] = [];
   const id = readRequiredNonEmptyString(value, "id", recordPath, issues);
-  const scope = readScope(value, recordPath, issues);
   const name = readRequiredNonEmptyString(value, "name", recordPath, issues);
   const command = readRequiredNonEmptyString(
     value,
@@ -85,7 +72,6 @@ export function validateCommandRecord(
     ok: true,
     value: {
       id,
-      scope,
       name,
       command,
       description,
@@ -162,32 +148,6 @@ function readRequiredNonEmptyString(
   }
 
   return fieldValue;
-}
-
-function readScope(
-  value: Record<string, unknown>,
-  recordPath: string,
-  issues: CommandValidationIssue[],
-): CommandVaultScope {
-  if (!hasOwn(value, "scope")) {
-    issues.push({
-      path: `${recordPath}.scope`,
-      message: "is required",
-    });
-    return "global";
-  }
-
-  const scope = value.scope;
-
-  if (!isCommandVaultScope(scope)) {
-    issues.push({
-      path: `${recordPath}.scope`,
-      message: "must be either 'global' or 'workspace'",
-    });
-    return "global";
-  }
-
-  return scope;
 }
 
 function readDescription(

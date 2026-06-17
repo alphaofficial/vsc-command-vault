@@ -89,16 +89,6 @@
             "paste"
           ],
           "markdownDescription": "Controls the default quick-pick execution action. `run` sends the command and executes it on Enter, while `paste` sends the command without a trailing newline on Enter."
-        },
-        "commandVault.enableGlobalScope": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "Show and allow Command Vault global commands."
-        },
-        "commandVault.enableWorkspaceScope": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "Show and allow Command Vault workspace commands."
         }
       }
     }

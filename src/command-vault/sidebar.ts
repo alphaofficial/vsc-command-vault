@@ -1,6 +1,5 @@
 import {
   createWorkspaceId,
-  isCommandVaultScope,
   type CommandVaultCommand,
 } from "./model.ts";
 import type {
@@ -48,9 +47,6 @@ export interface CreateCommandVaultSidebarProviderOptions {
 }
 
 export interface CommandVaultSidebarState {
-  enableGlobalScope: boolean;
-  enableWorkspaceScope: boolean;
-  globalCommands: readonly CommandVaultCommand[];
   hasWorkspace: boolean;
   workspaceCommands: readonly CommandVaultCommand[];
 }
@@ -70,7 +66,6 @@ export interface CommandVaultSidebarActionMessage {
   action: CommandVaultSidebarAction;
   target?: {
     id?: string;
-    scope: CommandVaultCommand["scope"];
   };
   type: "commandVault.action";
 }
@@ -80,9 +75,6 @@ export interface CommandVaultSidebarCreateCommandMessage {
     command: string;
     description: string;
     name: string;
-  };
-  target: {
-    scope: CommandVaultCommand["scope"];
   };
   type: "commandVault.createCommand";
 }
@@ -95,7 +87,6 @@ export interface CommandVaultSidebarUpdateCommandMessage {
   };
   target: {
     id: string;
-    scope: CommandVaultCommand["scope"];
   };
   type: "commandVault.updateCommand";
 }
@@ -119,8 +110,7 @@ export function createCommandVaultSidebarProvider(
     const state = await loadCommandVaultSidebarState(
       options.repository,
       options.workspace.workspaceFolders,
-      settings,
-    );
+  );
 
     activeWebviewView.webview.html = renderCommandVaultSidebarHtml(state);
   };
@@ -153,36 +143,21 @@ export async function loadCommandVaultSidebarState(
   workspaceFolders: readonly CommandVaultWorkspaceFolder[] | undefined,
   settings: CommandVaultSettings = DEFAULT_COMMAND_VAULT_SETTINGS,
 ): Promise<CommandVaultSidebarState> {
+  void settings;
   const workspaceFolderPath = workspaceFolders?.[0]?.uri.fsPath;
   if (!workspaceFolderPath) {
     return {
-      enableGlobalScope: settings.enableGlobalScope,
-      enableWorkspaceScope: settings.enableWorkspaceScope,
       hasWorkspace: false,
       workspaceCommands: [],
-      globalCommands: [],
-    };
-  }
-
-  if (!settings.enableWorkspaceScope) {
-    return {
-      enableGlobalScope: settings.enableGlobalScope,
-      enableWorkspaceScope: false,
-      hasWorkspace: true,
-      workspaceCommands: [],
-      globalCommands: [],
     };
   }
 
   const workspaceId = createWorkspaceId(workspaceFolderPath);
-  const workspaceCommands = await repository.readWorkspaceCommands(workspaceId);
+  const workspaceCommands = await repository.readCommands(workspaceId);
 
   return {
-    enableGlobalScope: settings.enableGlobalScope,
-    enableWorkspaceScope: settings.enableWorkspaceScope,
     hasWorkspace: true,
     workspaceCommands,
-    globalCommands: [],
   };
 }
 
@@ -482,9 +457,9 @@ export function renderCommandVaultSidebarHtml(
           <h2 class="section-title" id="workspace-heading">Workspace</h2>
         </div>
         <div class="sidebar-toolbar-actions">
-          ${renderSidebarActionButton("Export commands", "export", undefined, false, "secondary")}
-          ${renderSidebarActionButton("Import commands", "import", undefined, false, "secondary")}
-          ${renderSidebarActionButton("Create command", "create", undefined, !canCreateCommand(state))}
+          ${renderSidebarActionButton("Export commands", "export", false, "secondary")}
+          ${renderSidebarActionButton("Import commands", "import", false, "secondary")}
+          ${renderSidebarActionButton("Create command", "create", !canCreateCommand(state))}
         </div>
       </header>
       <div class="sidebar-search">
@@ -517,7 +492,6 @@ export function renderCommandVaultSidebarHtml(
 
         const action = button.dataset.commandVaultAction;
         const id = button.dataset.commandId;
-        const scope = button.dataset.commandScope;
 
         if (action === "create") {
           const form = document.querySelector('.create-command-form');
@@ -558,12 +532,8 @@ export function renderCommandVaultSidebarHtml(
           action,
         };
 
-        if (scope) {
-          message.target = { scope };
-        }
-
-        if (id && message.target) {
-          message.target.id = id;
+        if (id) {
+          message.target = { id };
         }
 
         vscode.postMessage(message);
@@ -600,8 +570,8 @@ export function renderCommandVaultSidebarHtml(
         vscode.postMessage({
           type: isEditForm ? "commandVault.updateCommand" : "commandVault.createCommand",
           target: isEditForm
-            ? { id: commandId, scope: "workspace" }
-            : { scope: "workspace" },
+            ? { id: commandId }
+            : undefined,
           input: {
             name,
             command,
@@ -658,13 +628,6 @@ export function renderCommandVaultSidebarHtml(
 }
 
 function renderWorkspaceSectionContent(state: CommandVaultSidebarState): string {
-  if (!state.enableWorkspaceScope) {
-    return renderSectionState(
-      "Workspace commands disabled",
-      "Enable the workspace scope setting to view workspace commands.",
-    );
-  }
-
   if (!state.hasWorkspace) {
     return renderSectionState(
       "No workspace open",
@@ -696,7 +659,6 @@ function renderSectionState(
 function renderSidebarActionButton(
   label: string,
   action: "create" | "export" | "import",
-  scope?: CommandVaultCommand["scope"],
   disabled?: boolean,
   variant?: "secondary",
 ): string {
@@ -707,7 +669,6 @@ function renderSidebarActionButton(
     `<button class="${className}"`,
     ' type="button"',
     ` data-command-vault-action="${escapeHtmlAttribute(action)}"`,
-    scope ? ` data-command-scope="${escapeHtmlAttribute(scope)}"` : "",
     ` aria-label="${escapeHtmlAttribute(label)}"`,
     disabled ? " disabled" : "",
     ` title="${escapeHtmlAttribute(label)}">`,
@@ -721,11 +682,10 @@ function canCreateCommand(state: CommandVaultSidebarState): boolean {
 }
 
 function renderCreateCommandForm(state: CommandVaultSidebarState): string {
-  const canCreateWorkspace = canCreateWorkspaceCommand(state);
+  void state;
 
   return [
     '<form class="create-command-form" aria-label="Create command" hidden>',
-    canCreateWorkspace ? '<input name="scope" type="hidden" value="workspace" />' : "",
     renderCommandFormFields(),
     '<div class="form-actions">',
     '<button class="sidebar-action form-action" type="submit" aria-label="Save command" title="Save command"><span aria-hidden="true" class="action-icon">✓</span></button>',
@@ -744,7 +704,7 @@ function renderCommandFormFields(command?: CommandVaultCommand): string {
 }
 
 function canCreateWorkspaceCommand(state: CommandVaultSidebarState): boolean {
-  return state.enableWorkspaceScope && state.hasWorkspace;
+  return state.hasWorkspace;
 }
 
 function renderCommandList(commands: readonly CommandVaultCommand[]): string {
@@ -784,7 +744,6 @@ function renderCommandCard(command: CommandVaultCommand): string {
 function renderEditCommandForm(command: CommandVaultCommand): string {
   return [
     `<form class="create-command-form edit-command-form" aria-label="Edit ${escapeHtmlAttribute(command.name)} command" hidden data-command-id="${escapeHtmlAttribute(command.id)}">`,
-    '<input name="scope" type="hidden" value="workspace" />',
     renderCommandFormFields(command),
     '<div class="form-actions">',
     `<button class="sidebar-action form-action" type="submit" aria-label="Save ${escapeHtmlAttribute(command.name)} command" title="Save ${escapeHtmlAttribute(command.name)} command"><span aria-hidden="true" class="action-icon">✓</span></button>`,
@@ -810,7 +769,6 @@ function renderActionButton(
     ' type="button"',
     ` data-command-vault-action="${escapeHtmlAttribute(action)}"`,
     ` data-command-id="${escapeHtmlAttribute(command.id)}"`,
-    ` data-command-scope="${escapeHtmlAttribute(command.scope)}"`,
     ` aria-label="${escapeHtmlAttribute(`${label} ${command.name}`)}"`,
     ` title="${escapeHtmlAttribute(`${label} ${command.name}`)}">`,
     `<span aria-hidden="true" class="action-icon">${escapeHtml(icon)}</span>`,
@@ -880,8 +838,7 @@ function parseCommandVaultSidebarActionMessage(
 
   if (
     !isPlainObject(target) ||
-    typeof target.id !== "string" ||
-    target.scope !== "workspace"
+    typeof target.id !== "string"
   ) {
     return undefined;
   }
@@ -891,7 +848,6 @@ function parseCommandVaultSidebarActionMessage(
     action,
     target: {
       id: target.id,
-      scope: target.scope,
     },
   };
 }
@@ -909,7 +865,6 @@ function parseCommandVaultSidebarUpdateCommandMessage(
     type: "commandVault.updateCommand",
     target: {
       id: parsed.target.id,
-      scope: parsed.target.scope,
     },
     input: parsed.input,
   };
@@ -923,7 +878,6 @@ function parseCommandVaultSidebarInputMessage(
       input: CommandVaultSidebarCreateCommandMessage["input"];
       target: {
         id?: unknown;
-        scope: CommandVaultCommand["scope"];
       };
     }
   | undefined {
@@ -932,10 +886,9 @@ function parseCommandVaultSidebarInputMessage(
   }
 
   const { target, input } = value;
+  const parsedTarget = isPlainObject(target) ? target : {};
 
   if (
-    !isPlainObject(target) ||
-    target.scope !== "workspace" ||
     !isPlainObject(input) ||
     typeof input.name !== "string" ||
     typeof input.command !== "string" ||
@@ -948,8 +901,7 @@ function parseCommandVaultSidebarInputMessage(
 
   return {
     target: {
-      id: target.id,
-      scope: target.scope,
+      id: parsedTarget.id,
     },
     input: {
       name: input.name.trim(),
@@ -970,9 +922,6 @@ function parseCommandVaultSidebarCreateCommandMessage(
 
   return {
     type: "commandVault.createCommand",
-    target: {
-      scope: parsed.target.scope,
-    },
     input: parsed.input,
   };
 }

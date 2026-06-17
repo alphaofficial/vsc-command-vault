@@ -1,11 +1,6 @@
-import type { CommandVaultCommand, CommandVaultScope } from "./model.ts";
+import type { CommandVaultCommand } from "./model.ts";
 import { createWorkspaceId } from "./model.ts";
 import type { CommandVaultRepository } from "./repository.ts";
-import {
-  DEFAULT_COMMAND_VAULT_SETTINGS,
-  isCommandVaultScopeEnabled,
-  type CommandVaultSettings,
-} from "./settings.ts";
 
 import type {
   CommandVaultQuickPickItem,
@@ -19,11 +14,9 @@ export const COMMAND_VAULT_DELETE_COMMAND_ID = "commandVault.deleteCommand";
 
 export interface CommandVaultCommandTarget {
   id: string;
-  scope: CommandVaultScope;
 }
 
 export interface CreateCommandVaultEditDeleteServiceOptions {
-  getSettings?: () => CommandVaultSettings;
   now?: () => string;
   repository: CommandVaultRepository;
   window: CommandVaultWindow;
@@ -39,10 +32,6 @@ export interface CommandVaultEditDeleteService {
   ): Promise<CommandVaultCommand | undefined>;
 }
 
-interface CommandVaultScopePickItem extends CommandVaultQuickPickItem {
-  scope: CommandVaultScope;
-}
-
 interface CommandVaultRecordPickItem extends CommandVaultQuickPickItem {
   command: CommandVaultCommand;
 }
@@ -54,8 +43,7 @@ interface CommandVaultDeleteChoiceItem extends CommandVaultQuickPickItem {
 interface ResolvedCommandSelection {
   command: CommandVaultCommand;
   commands: CommandVaultCommand[];
-  scope: CommandVaultScope;
-  workspaceId: string | null;
+  workspaceId: string;
 }
 
 export function createCommandVaultEditDeleteService(
@@ -65,12 +53,10 @@ export function createCommandVaultEditDeleteService(
 
   return {
     async editCommand(target) {
-      const settings = options.getSettings?.() ?? DEFAULT_COMMAND_VAULT_SETTINGS;
       const selection = await resolveCommandSelection(
         "edit",
         target,
         options.repository,
-        settings,
         options.window,
         options.workspace.workspaceFolders,
       );
@@ -79,9 +65,8 @@ export function createCommandVaultEditDeleteService(
         return undefined;
       }
 
-      const title = getEditTitle(selection.scope);
       const nameInput = await options.window.showInputBox({
-        title,
+        title: "Edit Command",
         prompt: "Update the command name.",
         placeHolder: "Run tests",
         value: selection.command.name,
@@ -97,7 +82,7 @@ export function createCommandVaultEditDeleteService(
       }
 
       const commandInput = await options.window.showInputBox({
-        title,
+        title: "Edit Command",
         prompt: "Update the terminal command.",
         placeHolder: "npm test",
         value: selection.command.command,
@@ -113,7 +98,7 @@ export function createCommandVaultEditDeleteService(
       }
 
       const descriptionInput = await options.window.showInputBox({
-        title,
+        title: "Edit Command",
         prompt: "Update the optional description.",
         placeHolder: "Runs the test suite",
         value: selection.command.description ?? "",
@@ -140,12 +125,10 @@ export function createCommandVaultEditDeleteService(
     },
 
     async deleteCommand(target) {
-      const settings = options.getSettings?.() ?? DEFAULT_COMMAND_VAULT_SETTINGS;
       const selection = await resolveCommandSelection(
         "delete",
         target,
         options.repository,
-        settings,
         options.window,
         options.workspace.workspaceFolders,
       );
@@ -168,7 +151,7 @@ export function createCommandVaultEditDeleteService(
           },
         ],
         {
-          title: getDeleteTitle(selection.scope),
+          title: "Delete Command",
           placeHolder: `Delete "${selection.command.name}"?`,
         },
       );
@@ -191,38 +174,27 @@ async function resolveCommandSelection(
   action: "delete" | "edit",
   target: CommandVaultCommandTarget | undefined,
   repository: CommandVaultRepository,
-  settings: CommandVaultSettings,
   window: CommandVaultWindow,
   workspaceFolders: readonly CommandVaultWorkspaceFolder[] | undefined,
 ): Promise<ResolvedCommandSelection | undefined> {
   const workspaceFolderPath = getWorkspaceFolderPath(workspaceFolders);
-  const scope = await resolveCommandScope(
-    action,
-    target,
-    settings,
-    window,
-    workspaceFolderPath,
-  );
 
-  if (!scope) {
+  if (!workspaceFolderPath) {
+    await window.showWarningMessage(
+      `Command Vault needs an open workspace to ${action} commands.`,
+    );
     return undefined;
   }
 
-  const workspaceId =
-    scope === "workspace" && workspaceFolderPath
-      ? createWorkspaceId(workspaceFolderPath)
-      : null;
-  const commands =
-    scope === "workspace"
-      ? await repository.readWorkspaceCommands(workspaceId)
-      : await repository.readGlobalCommands();
+  const workspaceId = createWorkspaceId(workspaceFolderPath);
+  const commands = await repository.readCommands(workspaceId);
 
   if (target) {
     const existingCommand = commands.find((command) => command.id === target.id);
 
     if (!existingCommand) {
       await window.showWarningMessage(
-        `Command Vault could not find the ${scope} command to ${action}.`,
+        `Command Vault could not find the command to ${action}.`,
       );
       return undefined;
     }
@@ -230,14 +202,13 @@ async function resolveCommandSelection(
     return {
       command: existingCommand,
       commands,
-      scope,
       workspaceId,
     };
   }
 
   if (commands.length === 0) {
     await window.showWarningMessage(
-      `Command Vault has no ${scope} commands to ${action}.`,
+      `Command Vault has no commands to ${action}.`,
     );
     return undefined;
   }
@@ -250,8 +221,8 @@ async function resolveCommandSelection(
       command,
     })),
     {
-      title: getActionTitle(action, scope),
-      placeHolder: `Select a ${scope} command to ${action}`,
+      title: `${capitalizeAction(action)} Command`,
+      placeHolder: `Select a command to ${action}`,
     },
   );
 
@@ -262,79 +233,8 @@ async function resolveCommandSelection(
   return {
     command: selectedCommand.command,
     commands,
-    scope,
     workspaceId,
   };
-}
-
-async function resolveCommandScope(
-  action: "delete" | "edit",
-  target: CommandVaultCommandTarget | undefined,
-  settings: CommandVaultSettings,
-  window: CommandVaultWindow,
-  workspaceFolderPath: string | undefined,
-): Promise<CommandVaultScope | undefined> {
-  if (target?.scope && !isCommandVaultScopeEnabled(target.scope, settings)) {
-    await window.showWarningMessage(
-      `Command Vault ${target.scope} commands are disabled in settings.`,
-    );
-    return undefined;
-  }
-
-  if (target?.scope === "workspace" && !workspaceFolderPath) {
-    await window.showWarningMessage(
-      `Command Vault needs an open workspace to ${action} workspace commands.`,
-    );
-    return undefined;
-  }
-
-  if (target?.scope) {
-    return target.scope;
-  }
-
-  const scopeItems = createScopePickItems(workspaceFolderPath, settings);
-
-  if (scopeItems.length === 0) {
-    await window.showWarningMessage(
-      `Command Vault has no enabled scopes to ${action}.`,
-    );
-    return undefined;
-  }
-
-  const selectedScope = await window.showQuickPick(
-    scopeItems,
-    {
-      title: capitalizeAction(action) + " Command",
-      placeHolder: `Choose which ${action} target to browse`,
-    },
-  );
-
-  return selectedScope?.scope;
-}
-
-function createScopePickItems(
-  workspaceFolderPath: string | undefined,
-  settings: CommandVaultSettings,
-): CommandVaultScopePickItem[] {
-  const items: CommandVaultScopePickItem[] = [];
-
-  if (isCommandVaultScopeEnabled("global", settings)) {
-    items.push({
-      label: "Global",
-      description: "Commands available in every workspace",
-      scope: "global",
-    });
-  }
-
-  if (workspaceFolderPath && isCommandVaultScopeEnabled("workspace", settings)) {
-    items.unshift({
-      label: "Workspace",
-      description: "Commands available only in this workspace",
-      scope: "workspace",
-    });
-  }
-
-  return items;
 }
 
 async function writeScopedCommands(
@@ -342,12 +242,7 @@ async function writeScopedCommands(
   selection: ResolvedCommandSelection,
   commands: readonly CommandVaultCommand[],
 ): Promise<void> {
-  if (selection.scope === "workspace") {
-    await repository.writeWorkspaceCommands(selection.workspaceId ?? "", commands);
-    return;
-  }
-
-  await repository.writeGlobalCommands(commands);
+  await repository.writeCommands(selection.workspaceId, commands);
 }
 
 async function readRequiredInput(
@@ -374,27 +269,6 @@ async function readRequiredInput(
 function normalizeOptionalInput(value: string): string | null {
   const normalizedValue = value.trim();
   return normalizedValue.length > 0 ? normalizedValue : null;
-}
-
-function getEditTitle(scope: CommandVaultScope): string {
-  return scope === "workspace"
-    ? "Edit Workspace Command"
-    : "Edit Global Command";
-}
-
-function getDeleteTitle(scope: CommandVaultScope): string {
-  return scope === "workspace"
-    ? "Delete Workspace Command"
-    : "Delete Global Command";
-}
-
-function getActionTitle(
-  action: "delete" | "edit",
-  scope: CommandVaultScope,
-): string {
-  return `${capitalizeAction(action)} ${
-    scope === "workspace" ? "Workspace" : "Global"
-  } Command`;
 }
 
 function capitalizeAction(action: "delete" | "edit"): string {

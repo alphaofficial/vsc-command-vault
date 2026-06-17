@@ -1,4 +1,4 @@
-import type { CommandVaultCommand, CommandVaultScope } from "./model.ts";
+import type { CommandVaultCommand } from "./model.ts";
 import { createWorkspaceId } from "./model.ts";
 import type { CommandVaultRepository } from "./repository.ts";
 
@@ -22,7 +22,6 @@ export interface CommandVaultClipboard {
 
 export interface CommandVaultCommandTarget {
   id: string;
-  scope: CommandVaultScope;
 }
 
 export interface CommandVaultExecutionWorkspaceFolder {
@@ -90,10 +89,7 @@ export async function resolveStoredCommandForAction(
     return undefined;
   }
 
-  const commands =
-    target.scope === "workspace"
-      ? await readWorkspaceCommandsForAction(action, options)
-      : await options.repository.readGlobalCommands();
+  const commands = await readCommandsForAction(action, options);
 
   if (!commands) {
     return undefined;
@@ -106,7 +102,7 @@ export async function resolveStoredCommandForAction(
   }
 
   await options.window.showWarningMessage(
-    `Command Vault could not find the ${target.scope} command to ${action}.`,
+    `Command Vault could not find the command to ${action}.`,
   );
   return undefined;
 }
@@ -123,7 +119,7 @@ function dispatchToTerminal(
   terminal.sendText(text, addNewLine);
 }
 
-async function readWorkspaceCommandsForAction(
+async function readCommandsForAction(
   action: CommandVaultExecutionAction,
   options: ResolveStoredCommandForActionOptions,
 ): Promise<CommandVaultCommand[] | undefined> {
@@ -131,12 +127,12 @@ async function readWorkspaceCommandsForAction(
 
   if (!workspaceFolderPath) {
     await options.window.showWarningMessage(
-      `Command Vault needs an open workspace to ${action} workspace commands.`,
+      `Command Vault needs an open workspace to ${action} commands.`,
     );
     return undefined;
   }
 
-  return options.repository.readWorkspaceCommands(
+  return options.repository.readCommands(
     createWorkspaceId(workspaceFolderPath),
   );
 }

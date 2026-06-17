@@ -9,20 +9,19 @@ import {
 } from "./search-command.ts";
 
 describe("command vault search service", () => {
-  it("searches workspace and global commands together and runs the selected result", async () => {
-    const workspaceCommand = createCommand("workspace", "workspace-1", {
+  it("searches workspace commands and runs the selected result", async () => {
+    const firstCommand = createCommand("command-1", {
       command: "pnpm dev",
       description: "Frontend",
       name: "Start web",
     });
-    const globalCommand = createCommand("global", "global-1", {
+    const secondCommand = createCommand("command-2", {
       command: "pnpm lint",
-      description: "Shared",
+      description: "Lint checks",
       name: "Lint",
     });
     const repository = createRepositoryRecorder({
-      globalCommands: [globalCommand],
-      workspaceCommands: [workspaceCommand],
+      commands: [firstCommand, secondCommand],
     });
     const quickPick = createQuickPickHarness();
     const contextTransitions: boolean[] = [];
@@ -43,13 +42,7 @@ describe("command vault search service", () => {
         },
       },
       workspace: {
-        workspaceFolders: [
-          {
-            uri: {
-              fsPath: "/tmp/project-search",
-            },
-          },
-        ],
+        workspaceFolders: [{ uri: { fsPath: "/tmp/project-search" } }],
       },
     });
 
@@ -62,10 +55,9 @@ describe("command vault search service", () => {
 
     assert.deepEqual(selection, {
       action: "run",
-      command: globalCommand,
+      command: secondCommand,
     });
-    assert.deepEqual(repository.readGlobalCommandsCalls, 1);
-    assert.deepEqual(repository.readWorkspaceCommandsCalls.length, 1);
+    assert.deepEqual(repository.readCommandsCalls.length, 1);
     assert.deepEqual(
       quickPick.instance.items.map((item) => ({
         description: item.description,
@@ -75,12 +67,12 @@ describe("command vault search service", () => {
       [
         {
           label: "Start web",
-          description: "Frontend · workspace",
+          description: "Frontend",
           detail: "pnpm dev",
         },
         {
           label: "Lint",
-          description: "Shared · global",
+          description: "Lint checks",
           detail: "pnpm lint",
         },
       ],
@@ -95,12 +87,9 @@ describe("command vault search service", () => {
   });
 
   it("lets the active picker switch to paste without reopening the quick pick", async () => {
-    const globalCommand = createCommand("global", "global-2", {
+    const command = createCommand("command-2", {
       command: "npm test",
       name: "Test",
-    });
-    const repository = createRepositoryRecorder({
-      globalCommands: [globalCommand],
     });
     const quickPick = createQuickPickHarness();
     const service = createCommandVaultSearchService({
@@ -110,11 +99,9 @@ describe("command vault search service", () => {
       getSettings() {
         return {
           defaultExecutionBehavior: "paste",
-          enableGlobalScope: true,
-          enableWorkspaceScope: true,
         };
       },
-      repository,
+      repository: createRepositoryRecorder({ commands: [command] }),
       window: {
         createQuickPick<Item extends CommandVaultSearchQuickPickItem>() {
           return quickPick.instance as CommandVaultSearchQuickPick<Item>;
@@ -124,7 +111,7 @@ describe("command vault search service", () => {
         },
       },
       workspace: {
-        workspaceFolders: undefined,
+        workspaceFolders: [{ uri: { fsPath: "/tmp/project-search" } }],
       },
     });
 
@@ -137,9 +124,8 @@ describe("command vault search service", () => {
     assert.equal(triggered, true);
     assert.deepEqual(selection, {
       action: "run",
-      command: globalCommand,
+      command,
     });
-    assert.deepEqual(repository.readWorkspaceCommandsCalls, []);
     assert.equal(quickPick.showCalls, 1);
     assert.match(
       quickPick.instance.placeholder,
@@ -177,64 +163,15 @@ describe("command vault search service", () => {
       "Command Vault has no commands to search.",
     ]);
   });
-
-  it("warns when settings disable every searchable scope", async () => {
-    const warningMessages: string[] = [];
-    const repository = createRepositoryRecorder({
-      globalCommands: [createCommand("global", "global-3")],
-      workspaceCommands: [createCommand("workspace", "workspace-3")],
-    });
-    const service = createCommandVaultSearchService({
-      commands: {
-        executeCommand() {},
-      },
-      getSettings() {
-        return {
-          defaultExecutionBehavior: "run",
-          enableGlobalScope: false,
-          enableWorkspaceScope: false,
-        };
-      },
-      repository,
-      window: {
-        createQuickPick() {
-          throw new Error("quick pick should not be created");
-        },
-        showWarningMessage(message) {
-          warningMessages.push(message);
-        },
-      },
-      workspace: {
-        workspaceFolders: [
-          {
-            uri: {
-              fsPath: "/tmp/project-search",
-            },
-          },
-        ],
-      },
-    });
-
-    const selection = await service.searchCommands();
-
-    assert.equal(selection, undefined);
-    assert.equal(repository.readGlobalCommandsCalls, 0);
-    assert.deepEqual(repository.readWorkspaceCommandsCalls, []);
-    assert.deepEqual(warningMessages, [
-      "Command Vault search is unavailable because all scopes are disabled in settings.",
-    ]);
-  });
 });
 
 function createCommand(
-  scope: "global" | "workspace",
   id: string,
   overrides: Partial<CommandVaultCommand> = {},
 ): CommandVaultCommand {
   return {
     id,
-    scope,
-    name: overrides.name ?? `${scope}-${id}`,
+    name: overrides.name ?? id,
     command: overrides.command ?? "echo hello",
     description:
       overrides.description === undefined ? null : overrides.description,
@@ -244,47 +181,28 @@ function createCommand(
 }
 
 function createRepositoryRecorder({
-  globalCommands = [],
-  workspaceCommands = [],
+  commands = [],
 }: {
-  globalCommands?: CommandVaultCommand[];
-  workspaceCommands?: CommandVaultCommand[];
+  commands?: CommandVaultCommand[];
 } = {}): {
-  readGlobalCommandsCalls: number;
-  readWorkspaceCommandsCalls: string[];
-  readGlobalCommands(): Promise<CommandVaultCommand[]>;
-  readWorkspaceCommands(workspaceId: string | null): Promise<CommandVaultCommand[]>;
-  writeGlobalCommands(commands: readonly CommandVaultCommand[]): Promise<void>;
-  writeWorkspaceCommands(
+  readCommandsCalls: Array<string | null>;
+  readCommands(workspaceId: string | null): Promise<CommandVaultCommand[]>;
+  writeCommands(
     workspaceId: string,
     commands: readonly CommandVaultCommand[],
   ): Promise<void>;
 } {
-  let readGlobalCommandsCalls = 0;
-  const readWorkspaceCommandsCalls: string[] = [];
+  const readCommandsCalls: Array<string | null> = [];
 
   return {
-    get readGlobalCommandsCalls() {
-      return readGlobalCommandsCalls;
+    readCommandsCalls,
+    async readCommands(workspaceId) {
+      readCommandsCalls.push(workspaceId);
+      return [...commands];
     },
-    readWorkspaceCommandsCalls,
-    async readGlobalCommands() {
-      readGlobalCommandsCalls += 1;
-      return [...globalCommands];
-    },
-    async readWorkspaceCommands(workspaceId) {
-      if (workspaceId !== null) {
-        readWorkspaceCommandsCalls.push(workspaceId);
-      }
-
-      return [...workspaceCommands];
-    },
-    async writeGlobalCommands(commands) {
-      void commands;
-    },
-    async writeWorkspaceCommands(workspaceId, commands) {
+    async writeCommands(workspaceId, nextCommands) {
       void workspaceId;
-      void commands;
+      void nextCommands;
     },
   };
 }
@@ -337,9 +255,11 @@ function createQuickPickHarness(): {
     setActiveIndex(index) {
       const item = instance.items[index];
 
-      if (item) {
-        instance.activeItems = [item];
+      if (!item) {
+        throw new Error(`No quick pick item at index ${index}`);
       }
+
+      instance.activeItems = [item];
     },
   };
 }

@@ -6,12 +6,12 @@ import { createWorkspaceId } from "./model.ts";
 import { createCommandVaultEditDeleteService } from "./edit-delete-command.ts";
 
 describe("command vault edit-delete service", () => {
-  it("edits a global command after prompting for scope and command", async () => {
+  it("edits a command after prompting for fields", async () => {
+    const workspacePath = "/tmp/project-alpha";
     const repository = createRepositoryRecorder({
-      globalCommands: [
+      commands: [
         {
-          id: "command_global_tests",
-          scope: "global",
+          id: "command_tests",
           name: "Run tests",
           command: "npm test",
           description: "Runs the full test suite",
@@ -26,19 +26,13 @@ describe("command vault edit-delete service", () => {
         " npm run test:all ",
         " Runs every test target ",
       ],
-      quickPickLabels: ["Global", "Run tests"],
+      quickPickLabels: ["Run tests"],
     });
     const service = createCommandVaultEditDeleteService({
       repository,
       window,
       workspace: {
-        workspaceFolders: [
-          {
-            uri: {
-              fsPath: "/tmp/project-alpha",
-            },
-          },
-        ],
+        workspaceFolders: [{ uri: { fsPath: workspacePath } }],
       },
       now() {
         return "2026-06-02T12:00:00.000Z";
@@ -47,51 +41,30 @@ describe("command vault edit-delete service", () => {
 
     const editedCommand = await service.editCommand();
 
-    assert.deepEqual(window.quickPickLabelsSeen, [
-      ["Workspace", "Global"],
-      ["Run tests"],
-    ]);
-    assert.deepEqual(window.inputBoxOptionsSeen, [
-      {
-        title: "Edit Global Command",
-        prompt: "Update the command name.",
-        placeHolder: "Run tests",
-        value: "Run tests",
-      },
-      {
-        title: "Edit Global Command",
-        prompt: "Update the terminal command.",
-        placeHolder: "npm test",
-        value: "npm test",
-      },
-      {
-        title: "Edit Global Command",
-        prompt: "Update the optional description.",
-        placeHolder: "Runs the test suite",
-        value: "Runs the full test suite",
-      },
-    ]);
+    assert.deepEqual(window.quickPickLabelsSeen, [["Run tests"]]);
     assert.deepEqual(editedCommand, {
-      id: "command_global_tests",
-      scope: "global",
+      id: "command_tests",
       name: "Run all tests",
       command: "npm run test:all",
       description: "Runs every test target",
       createdAt: "2026-06-01T00:00:00.000Z",
       updatedAt: "2026-06-02T12:00:00.000Z",
     });
-    assert.deepEqual(repository.writeGlobalCommandsCalls, [[editedCommand]]);
-    assert.deepEqual(repository.writeWorkspaceCommandsCalls, []);
+    assert.deepEqual(repository.writeCommandsCalls, [
+      {
+        workspaceId: createWorkspaceId(workspacePath),
+        commands: [editedCommand],
+      },
+    ]);
     assert.deepEqual(window.warningMessages, []);
   });
 
-  it("deletes a workspace command after confirmation", async () => {
+  it("deletes a command after confirmation", async () => {
     const workspacePath = "/tmp/project-beta";
     const repository = createRepositoryRecorder({
-      workspaceCommands: [
+      commands: [
         {
-          id: "command_workspace_lint",
-          scope: "workspace",
+          id: "command_lint",
           name: "Lint",
           command: "npm run lint",
           description: null,
@@ -99,52 +72,42 @@ describe("command vault edit-delete service", () => {
           updatedAt: "2026-06-01T00:00:00.000Z",
         },
         {
-          id: "command_workspace_test",
-          scope: "workspace",
+          id: "command_test",
           name: "Test",
           command: "npm test",
-          description: "Runs workspace tests",
+          description: "Runs tests",
           createdAt: "2026-06-01T01:00:00.000Z",
           updatedAt: "2026-06-01T01:00:00.000Z",
         },
       ],
     });
     const window = createWindowDouble({
-      quickPickLabels: ["Workspace", "Test", "Delete"],
+      quickPickLabels: ["Test", "Delete"],
     });
     const service = createCommandVaultEditDeleteService({
       repository,
       window,
       workspace: {
-        workspaceFolders: [
-          {
-            uri: {
-              fsPath: workspacePath,
-            },
-          },
-        ],
+        workspaceFolders: [{ uri: { fsPath: workspacePath } }],
       },
     });
 
     const deletedCommand = await service.deleteCommand();
 
-    assert.deepEqual(deletedCommand, repository.workspaceCommands[1]);
+    assert.deepEqual(deletedCommand, repository.commands[1]);
     assert.deepEqual(window.quickPickLabelsSeen, [
-      ["Workspace", "Global"],
       ["Lint", "Test"],
       ["Delete", "Cancel"],
     ]);
-    assert.deepEqual(repository.writeGlobalCommandsCalls, []);
-    assert.deepEqual(repository.writeWorkspaceCommandsCalls, [
+    assert.deepEqual(repository.writeCommandsCalls, [
       {
         workspaceId: createWorkspaceId(workspacePath),
-        commands: [repository.workspaceCommands[0]],
+        commands: [repository.commands[0]],
       },
     ]);
-    assert.deepEqual(window.warningMessages, []);
   });
 
-  it("warns and stops when a workspace edit is requested without an open workspace", async () => {
+  it("warns and stops without an open workspace", async () => {
     const repository = createRepositoryRecorder();
     const window = createWindowDouble();
     const service = createCommandVaultEditDeleteService({
@@ -156,67 +119,50 @@ describe("command vault edit-delete service", () => {
     });
 
     const editedCommand = await service.editCommand({
-      id: "command_workspace_missing",
-      scope: "workspace",
+      id: "command_missing",
     });
 
     assert.equal(editedCommand, undefined);
     assert.deepEqual(window.warningMessages, [
-      "Command Vault needs an open workspace to edit workspace commands.",
+      "Command Vault needs an open workspace to edit commands.",
     ]);
     assert.deepEqual(window.quickPickLabelsSeen, []);
     assert.deepEqual(window.inputBoxOptionsSeen, []);
-    assert.deepEqual(repository.writeGlobalCommandsCalls, []);
-    assert.deepEqual(repository.writeWorkspaceCommandsCalls, []);
+    assert.deepEqual(repository.writeCommandsCalls, []);
   });
 });
 
 function createRepositoryRecorder({
-  globalCommands = [],
-  workspaceCommands = [],
+  commands = [],
 }: {
-  globalCommands?: CommandVaultCommand[];
-  workspaceCommands?: CommandVaultCommand[];
+  commands?: CommandVaultCommand[];
 } = {}): {
-  globalCommands: CommandVaultCommand[];
-  workspaceCommands: CommandVaultCommand[];
-  writeGlobalCommandsCalls: CommandVaultCommand[][];
-  writeWorkspaceCommandsCalls: Array<{
+  commands: CommandVaultCommand[];
+  writeCommandsCalls: Array<{
     commands: CommandVaultCommand[];
     workspaceId: string;
   }>;
-  readGlobalCommands(): Promise<CommandVaultCommand[]>;
-  readWorkspaceCommands(workspaceId: string | null): Promise<CommandVaultCommand[]>;
-  writeGlobalCommands(commands: readonly CommandVaultCommand[]): Promise<void>;
-  writeWorkspaceCommands(
+  readCommands(workspaceId: string | null): Promise<CommandVaultCommand[]>;
+  writeCommands(
     workspaceId: string,
     commands: readonly CommandVaultCommand[],
   ): Promise<void>;
 } {
-  const writeGlobalCommandsCalls: CommandVaultCommand[][] = [];
-  const writeWorkspaceCommandsCalls: Array<{
+  const writeCommandsCalls: Array<{
     commands: CommandVaultCommand[];
     workspaceId: string;
   }> = [];
 
   return {
-    globalCommands,
-    workspaceCommands,
-    writeGlobalCommandsCalls,
-    writeWorkspaceCommandsCalls,
-    async readGlobalCommands() {
-      return [...globalCommands];
+    commands,
+    writeCommandsCalls,
+    async readCommands() {
+      return [...commands];
     },
-    async readWorkspaceCommands() {
-      return [...workspaceCommands];
-    },
-    async writeGlobalCommands(commands) {
-      writeGlobalCommandsCalls.push([...commands]);
-    },
-    async writeWorkspaceCommands(workspaceId, commands) {
-      writeWorkspaceCommandsCalls.push({
+    async writeCommands(workspaceId, nextCommands) {
+      writeCommandsCalls.push({
         workspaceId,
-        commands: [...commands],
+        commands: [...nextCommands],
       });
     },
   };
@@ -264,11 +210,10 @@ function createWindowDouble({
       quickPickLabelsSeen.push(items.map((item) => item.label));
       const selectedLabel = quickPickLabels.shift();
 
-      if (!selectedLabel) {
-        return items[0];
-      }
-
-      return items.find((item) => item.label === selectedLabel);
+      return (
+        items.find((item) => item.label === selectedLabel) ??
+        items[0]
+      );
     },
     async showWarningMessage(message) {
       warningMessages.push(message);

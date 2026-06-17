@@ -7,28 +7,14 @@ import { afterEach, describe, it } from "vitest";
 
 import type { CommandVaultCommand } from "./model.ts";
 import {
-  COMMAND_VAULT_GLOBAL_STORAGE_FILE,
   createWorkspaceId,
   getWorkspaceStorageFilePath,
 } from "./model.ts";
 import { createCommandVaultRepository } from "./repository.ts";
 
-const SAMPLE_GLOBAL_COMMANDS: CommandVaultCommand[] = [
+const SAMPLE_COMMANDS: CommandVaultCommand[] = [
   {
-    id: "command_global_test",
-    scope: "global",
-    name: "Run tests",
-    command: "npm test",
-    description: "Runs the test suite",
-    createdAt: "2026-06-02T00:00:00.000Z",
-    updatedAt: "2026-06-02T00:00:00.000Z",
-  },
-];
-
-const SAMPLE_WORKSPACE_COMMANDS: CommandVaultCommand[] = [
-  {
-    id: "command_workspace_dev",
-    scope: "workspace",
+    id: "command_dev",
     name: "Start app",
     command: "npm run dev",
     description: null,
@@ -53,38 +39,11 @@ describe("command vault repository", () => {
     const repository = createCommandVaultRepository({ fsPath: storageRoot });
     const workspaceId = createWorkspaceId("/tmp/project-alpha");
 
-    assert.deepEqual(await repository.readGlobalCommands(), []);
-    assert.deepEqual(await repository.readWorkspaceCommands(workspaceId), []);
+    assert.deepEqual(await repository.readCommands(workspaceId), []);
+    assert.deepEqual(await repository.readCommands(null), []);
   });
 
-  it("returns an empty workspace list when there is no open workspace id", async () => {
-    const storageRoot = await createTempStorageRoot();
-    const repository = createCommandVaultRepository({ fsPath: storageRoot });
-
-    assert.deepEqual(await repository.readWorkspaceCommands(null), []);
-  });
-
-  it("persists and reloads global commands under global.json", async () => {
-    const storageRoot = await createTempStorageRoot();
-    const repository = createCommandVaultRepository({ fsPath: storageRoot });
-    const storageFilePath = join(
-      storageRoot,
-      COMMAND_VAULT_GLOBAL_STORAGE_FILE,
-    );
-
-    await repository.writeGlobalCommands(SAMPLE_GLOBAL_COMMANDS);
-
-    assert.deepEqual(
-      await repository.readGlobalCommands(),
-      SAMPLE_GLOBAL_COMMANDS,
-    );
-    assert.deepEqual(
-      await readJsonFile(storageFilePath),
-      SAMPLE_GLOBAL_COMMANDS,
-    );
-  });
-
-  it("persists and reloads workspace commands under workspaces/<id>.json", async () => {
+  it("persists and reloads commands under workspaces/<id>.json", async () => {
     const storageRoot = await createTempStorageRoot();
     const repository = createCommandVaultRepository({ fsPath: storageRoot });
     const workspaceId = createWorkspaceId("/tmp/project-beta");
@@ -93,51 +52,13 @@ describe("command vault repository", () => {
       getWorkspaceStorageFilePath(workspaceId),
     );
 
-    await repository.writeWorkspaceCommands(
-      workspaceId,
-      SAMPLE_WORKSPACE_COMMANDS,
-    );
+    await repository.writeCommands(workspaceId, SAMPLE_COMMANDS);
 
-    assert.deepEqual(
-      await repository.readWorkspaceCommands(workspaceId),
-      SAMPLE_WORKSPACE_COMMANDS,
-    );
-    assert.deepEqual(
-      await readJsonFile(storageFilePath),
-      SAMPLE_WORKSPACE_COMMANDS,
-    );
+    assert.deepEqual(await repository.readCommands(workspaceId), SAMPLE_COMMANDS);
+    assert.deepEqual(await readJsonFile(storageFilePath), SAMPLE_COMMANDS);
   });
 
   it("ignores malformed JSON files and emits a non-blocking warning", async () => {
-    const storageRoot = await createTempStorageRoot();
-    const storageFilePath = join(
-      storageRoot,
-      COMMAND_VAULT_GLOBAL_STORAGE_FILE,
-    );
-    const warnings: string[] = [];
-    const repository = createCommandVaultRepository(
-      { fsPath: storageRoot },
-      {
-        onWarning(message) {
-          warnings.push(message);
-        },
-      },
-    );
-
-    await mkdir(dirname(storageFilePath), { recursive: true });
-    await writeFile(storageFilePath, '{"broken":', { encoding: "utf8" });
-
-    assert.deepEqual(await repository.readGlobalCommands(), []);
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0] ?? "", /ignored malformed JSON/u);
-    assert.match(warnings[0] ?? "", /global\.json/u);
-    assert.equal(
-      await readFile(storageFilePath, { encoding: "utf8" }),
-      '{"broken":',
-    );
-  });
-
-  it("filters invalid command entries, keeps valid ones, and warns once", async () => {
     const storageRoot = await createTempStorageRoot();
     const workspaceId = createWorkspaceId("/tmp/project-gamma");
     const storageFilePath = join(
@@ -153,13 +74,41 @@ describe("command vault repository", () => {
         },
       },
     );
+
+    await mkdir(dirname(storageFilePath), { recursive: true });
+    await writeFile(storageFilePath, '{"broken":', { encoding: "utf8" });
+
+    assert.deepEqual(await repository.readCommands(workspaceId), []);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0] ?? "", /ignored malformed JSON/u);
+    assert.equal(
+      await readFile(storageFilePath, { encoding: "utf8" }),
+      '{"broken":',
+    );
+  });
+
+  it("filters invalid command entries, keeps valid ones, and warns once", async () => {
+    const storageRoot = await createTempStorageRoot();
+    const workspaceId = createWorkspaceId("/tmp/project-delta");
+    const storageFilePath = join(
+      storageRoot,
+      getWorkspaceStorageFilePath(workspaceId),
+    );
+    const warnings: string[] = [];
+    const repository = createCommandVaultRepository(
+      { fsPath: storageRoot },
+      {
+        onWarning(message) {
+          warnings.push(message);
+        },
+      },
+    );
     const persistedContents = JSON.stringify(
       [
-        SAMPLE_WORKSPACE_COMMANDS[0],
+        SAMPLE_COMMANDS[0],
         {
-          id: "command_invalid_scope",
-          scope: "folder",
-          name: "Broken scope",
+          id: "command_invalid",
+          name: "   ",
           command: "npm run lint",
           description: null,
           createdAt: "2026-06-02T00:00:00.000Z",
@@ -174,21 +123,11 @@ describe("command vault repository", () => {
     await mkdir(dirname(storageFilePath), { recursive: true });
     await writeFile(storageFilePath, persistedContents, { encoding: "utf8" });
 
-    assert.deepEqual(
-      await repository.readWorkspaceCommands(workspaceId),
-      SAMPLE_WORKSPACE_COMMANDS,
-    );
+    assert.deepEqual(await repository.readCommands(workspaceId), SAMPLE_COMMANDS);
     assert.equal(warnings.length, 1);
     assert.match(warnings[0] ?? "", /ignored invalid command entries/u);
-    assert.match(
-      warnings[0] ?? "",
-      /commands\[1\]\.scope must be either 'global' or 'workspace'/u,
-    );
+    assert.match(warnings[0] ?? "", /commands\[1\]\.name/u);
     assert.match(warnings[0] ?? "", /commands\[2\] must be an object/u);
-    assert.equal(
-      await readFile(storageFilePath, { encoding: "utf8" }),
-      persistedContents,
-    );
   });
 });
 
