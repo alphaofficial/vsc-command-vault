@@ -3,7 +3,6 @@ import { createWorkspaceId } from "./model.ts";
 import type { CommandVaultRepository } from "./repository.ts";
 import {
   DEFAULT_COMMAND_VAULT_SETTINGS,
-  isCommandVaultScopeEnabled,
   type CommandVaultSettings,
 } from "./settings.ts";
 
@@ -114,16 +113,13 @@ export function createCommandVaultSearchService(
       const settings = options.getSettings?.() ?? DEFAULT_COMMAND_VAULT_SETTINGS;
       const commands = await readSearchableCommands(
         options.repository,
-        settings,
         options.workspace.workspaceFolders,
       );
 
       if (commands.length === 0) {
-        const warningMessage =
-          !settings.enableGlobalScope && !settings.enableWorkspaceScope
-            ? "Command Vault search is unavailable because all scopes are disabled in settings."
-            : "Command Vault has no commands to search.";
-        await options.window.showWarningMessage(warningMessage);
+        await options.window.showWarningMessage(
+          "Command Vault has no commands to search.",
+        );
         return undefined;
       }
 
@@ -223,19 +219,15 @@ export function createCommandVaultSearchService(
 
 async function readSearchableCommands(
   repository: CommandVaultRepository,
-  settings: CommandVaultSettings,
   workspaceFolders: readonly CommandVaultSearchWorkspaceFolder[] | undefined,
 ): Promise<CommandVaultCommand[]> {
   const workspaceFolderPath = workspaceFolders?.[0]?.uri.fsPath;
-  const workspaceCommands =
-    settings.enableWorkspaceScope && workspaceFolderPath
-      ? await repository.readWorkspaceCommands(createWorkspaceId(workspaceFolderPath))
-      : [];
-  const globalCommands = isCommandVaultScopeEnabled("global", settings)
-    ? await repository.readGlobalCommands()
-    : [];
 
-  return [...workspaceCommands, ...globalCommands];
+  if (!workspaceFolderPath) {
+    return [];
+  }
+
+  return repository.readCommands(createWorkspaceId(workspaceFolderPath));
 }
 
 function createQuickPickPlaceholder(
@@ -243,7 +235,7 @@ function createQuickPickPlaceholder(
   alternateExecutionAction: Exclude<CommandVaultSearchAction, "edit">,
 ): string {
   return [
-    "Search workspace and global commands.",
+    "Search commands.",
     `Enter ${formatExecutionVerb(defaultExecutionAction)},`,
     `Alt/Option+Enter ${formatExecutionVerb(alternateExecutionAction)},`,
     "Cmd/Ctrl+Enter edits.",
@@ -255,9 +247,7 @@ function createSearchItem(
 ): CommandVaultSearchQuickPickItem {
   return {
     label: command.name,
-    description: command.description
-      ? `${command.description} · ${command.scope}`
-      : command.scope,
+    description: command.description ?? undefined,
     detail: command.command,
     command,
   };

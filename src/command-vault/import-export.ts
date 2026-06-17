@@ -1,5 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { extname } from "node:path";
+import { extname, join } from "node:path";
+
+import { createHash } from "node:crypto";
 
 import type { CommandVaultCommand } from "./model.ts";
 import { createWorkspaceId, validatePersistedCommandRecords } from "./model.ts";
@@ -9,13 +11,24 @@ export const COMMAND_VAULT_EXPORT_FILENAME_PREFIX = "command-vault-export";
 export const COMMAND_VAULT_EXPORT_PAYLOAD_VERSION = "1.0";
 
 export interface CommandVaultExportPayload {
-  commands: CommandVaultCommand[];
+  commands: CommandVaultPortableCommand[];
   exportedAt: string;
   version: string;
 }
 
+export interface CommandVaultPortableCommand {
+  command: string;
+  description: string | null;
+  name: string;
+}
+
 export interface CommandVaultImportExportFileUri {
   fsPath: string;
+  scheme?: string;
+}
+
+export interface CommandVaultImportExportUriFactory {
+  file(path: string): CommandVaultImportExportFileUri;
 }
 
 export interface CommandVaultImportExportSaveDialogOptions {
@@ -60,6 +73,7 @@ export interface CommandVaultImportExportWorkspace {
 export interface CreateCommandVaultImportExportServiceOptions {
   now?: () => string;
   repository: CommandVaultRepository;
+  uriFactory?: CommandVaultImportExportUriFactory;
   window: CommandVaultImportExportWindow;
   workspace: CommandVaultImportExportWorkspace;
 }
@@ -89,20 +103,60 @@ export function buildExportPayload(
   return {
     version: COMMAND_VAULT_EXPORT_PAYLOAD_VERSION,
     exportedAt,
-    commands: [...commands],
+    commands: commands.map(toPortableCommand),
   };
+}
+
+export interface MergeImportedCommandsResult {
+  changedCount: number;
+  commands: CommandVaultCommand[];
 }
 
 export function mergeImportedCommands(
   importedCommands: readonly CommandVaultCommand[],
   existingCommands: readonly CommandVaultCommand[],
-): CommandVaultCommand[] {
-  const existingIds = new Set(existingCommands.map((command) => command.id));
-  const uniqueImportedCommands = importedCommands.filter(
-    (command) => !existingIds.has(command.id),
+): MergeImportedCommandsResult {
+  const uniqueImportedCommands = dedupeCommandsByIdentity(importedCommands);
+  const nextExistingCommands = [...existingCommands];
+  const existingIndexesByIdentity = new Map(
+    existingCommands.map((command, index) => [
+      createCommandIdentity(command),
+      index,
+    ]),
   );
+  const newCommands: CommandVaultCommand[] = [];
+  let changedCount = 0;
 
-  return [...uniqueImportedCommands, ...existingCommands];
+  for (const importedCommand of uniqueImportedCommands) {
+    const existingIndex = existingIndexesByIdentity.get(
+      createCommandIdentity(importedCommand),
+    );
+
+    if (existingIndex === undefined) {
+      newCommands.push(importedCommand);
+      changedCount += 1;
+      continue;
+    }
+
+    const existingCommand = nextExistingCommands[existingIndex];
+
+    if (
+      existingCommand &&
+      existingCommand.description !== importedCommand.description
+    ) {
+      nextExistingCommands[existingIndex] = {
+        ...existingCommand,
+        description: importedCommand.description,
+        updatedAt: importedCommand.updatedAt,
+      };
+      changedCount += 1;
+    }
+  }
+
+  return {
+    changedCount,
+    commands: [...newCommands, ...nextExistingCommands],
+  };
 }
 
 export function createCommandVaultImportExportService(
@@ -110,6 +164,7 @@ export function createCommandVaultImportExportService(
 ): CommandVaultImportExportService {
   const now = options.now ?? defaultNow;
   const repository = options.repository;
+  const uriFactory = options.uriFactory ?? defaultUriFactory;
   const window = options.window;
   const workspace = options.workspace;
 
@@ -127,7 +182,7 @@ export function createCommandVaultImportExportService(
       const fileUri = await showSaveDialog({
         title: "Export Command Vault Commands",
         saveLabel: "Export",
-        defaultUri: { fsPath: buildDefaultExportFilename() },
+        defaultUri: uriFactory.file(resolveDefaultExportPath(workspace)),
         filters: { JSON: ["json"] },
       });
 
@@ -139,7 +194,8 @@ export function createCommandVaultImportExportService(
       const serializedPayload = `${JSON.stringify(exportPayload, null, 2)}\n`;
 
       await writeFile(fileUri.fsPath, serializedPayload, { encoding: "utf8" });
-      await window.showInformationMessage?.(
+      showInformationMessage(
+        window,
         `Command Vault exported ${exportPayload.commands.length} command${
           exportPayload.commands.length === 1 ? "" : "s"
         }.`,
@@ -190,12 +246,7 @@ export function createCommandVaultImportExportService(
         return;
       }
 
-      const importedValue =
-        isPlainObject(parsed) && "commands" in parsed ? parsed.commands : parsed;
-      const validation = validatePersistedCommandRecords(
-        importedValue,
-        "import.commands",
-      );
+      const validation = validatePortableCommandRecords(parsed);
 
       if (validation.issues.length > 0) {
         await window.showWarningMessage(
@@ -212,21 +263,15 @@ export function createCommandVaultImportExportService(
         return;
       }
 
-      const globalImports = validation.valid.filter(
-        (command) => command.scope === "global",
-      );
-      const workspaceImports = validation.valid.filter(
-        (command) => command.scope === "workspace",
-      );
-      const importedCount = await mergeImportBatches(
+      const importedCount = await importWorkspaceCommands(
         repository,
         window,
         workspace,
-        globalImports,
-        workspaceImports,
+        validation.valid.map((command) => createImportedCommand(command, now())),
       );
 
-      await window.showInformationMessage?.(
+      showInformationMessage(
+        window,
         `Command Vault imported ${importedCount} command${
           importedCount === 1 ? "" : "s"
         }.`,
@@ -241,49 +286,43 @@ async function collectExportPayload(
   now: () => string,
 ): Promise<CommandVaultExportPayload> {
   const workspaceId = resolveWorkspaceId(workspace);
-  const [globalCommands, workspaceCommands] = await Promise.all([
-    repository.readGlobalCommands(),
-    repository.readWorkspaceCommands(workspaceId),
-  ]);
+  const workspaceCommands = await repository.readCommands(workspaceId);
 
   return buildExportPayload(
-    [...globalCommands, ...workspaceCommands],
+    workspaceCommands,
     now(),
   );
 }
 
-async function mergeImportBatches(
+async function importWorkspaceCommands(
   repository: CommandVaultRepository,
   window: CommandVaultImportExportWindow,
   workspace: CommandVaultImportExportWorkspace,
-  globalImports: readonly CommandVaultCommand[],
-  workspaceImports: readonly CommandVaultCommand[],
+  importedCommands: readonly CommandVaultCommand[],
 ): Promise<number> {
   const workspaceId = resolveWorkspaceId(workspace);
-  const globalCommands = await repository.readGlobalCommands();
-  const mergedGlobalCommands = mergeImportedCommands(
-    globalImports,
-    globalCommands,
-  );
-  await repository.writeGlobalCommands(mergedGlobalCommands);
 
-  let importedCount = mergedGlobalCommands.length - globalCommands.length;
-
-  if (workspaceId) {
-    const workspaceCommands = await repository.readWorkspaceCommands(workspaceId);
-    const mergedWorkspaceCommands = mergeImportedCommands(
-      workspaceImports,
-      workspaceCommands,
-    );
-    await repository.writeWorkspaceCommands(workspaceId, mergedWorkspaceCommands);
-    importedCount += mergedWorkspaceCommands.length - workspaceCommands.length;
-  } else if (workspaceImports.length > 0) {
+  if (!workspaceId) {
     await window.showWarningMessage(
-      "Command Vault skipped workspace commands because no workspace is open.",
+      "Command Vault needs an open workspace to import commands.",
+    );
+    return 0;
+  }
+
+  const workspaceCommands = await repository.readCommands(workspaceId);
+  const mergedWorkspaceCommands = mergeImportedCommands(
+    importedCommands,
+    workspaceCommands,
+  );
+
+  if (mergedWorkspaceCommands.changedCount > 0) {
+    await repository.writeCommands(
+      workspaceId,
+      mergedWorkspaceCommands.commands,
     );
   }
 
-  return importedCount;
+  return mergedWorkspaceCommands.changedCount;
 }
 
 function resolveWorkspaceId(
@@ -293,14 +332,221 @@ function resolveWorkspaceId(
   return workspaceFolderPath ? createWorkspaceId(workspaceFolderPath) : null;
 }
 
+function resolveDefaultExportPath(
+  workspace: CommandVaultImportExportWorkspace,
+): string {
+  const filename = buildDefaultExportFilename();
+  const workspaceFolderPath = workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+  return workspaceFolderPath ? join(workspaceFolderPath, filename) : filename;
+}
+
+const defaultUriFactory: CommandVaultImportExportUriFactory = {
+  file(path) {
+    return {
+      fsPath: path,
+      scheme: "file",
+    };
+  },
+};
+
 function isPlainObject(
   value: unknown,
 ): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function toPortableCommand(command: CommandVaultCommand): CommandVaultPortableCommand {
+  return {
+    name: command.name,
+    command: command.command,
+    description: command.description,
+  };
+}
+
+function validatePortableCommandRecords(
+  value: unknown,
+): {
+  valid: CommandVaultPortableCommand[];
+  issues: Array<{ path: string; message: string }>;
+} {
+  const importedValue =
+    isPlainObject(value) && "commands" in value ? value.commands : value;
+
+  if (!Array.isArray(importedValue)) {
+    return {
+      valid: [],
+      issues: [{ path: "import.commands", message: "must be an array" }],
+    };
+  }
+
+  const valid: CommandVaultPortableCommand[] = [];
+  const issues: Array<{ path: string; message: string }> = [];
+
+  importedValue.forEach((record, index) => {
+    const commandPath = `import.commands[${index}]`;
+
+    if (!isPlainObject(record)) {
+      issues.push({ path: commandPath, message: "must be an object" });
+      return;
+    }
+
+    const name = readRequiredPortableString(record, "name", commandPath, issues);
+    const command = readRequiredPortableString(
+      record,
+      "command",
+      commandPath,
+      issues,
+    );
+    const description = readPortableDescription(record, commandPath, issues);
+
+    if (name && command) {
+      valid.push({
+        name,
+        command,
+        description,
+      });
+    }
+  });
+
+  if (valid.length === 0) {
+    const legacyValidation = validatePersistedCommandRecords(
+      importedValue,
+      "import.commands",
+    );
+
+    if (legacyValidation.valid.length > 0) {
+      return {
+        valid: legacyValidation.valid.map(toPortableCommand),
+        issues: legacyValidation.issues,
+      };
+    }
+  }
+
+  return { valid, issues };
+}
+
+function readRequiredPortableString(
+  value: Record<string, unknown>,
+  key: "command" | "name",
+  commandPath: string,
+  issues: Array<{ path: string; message: string }>,
+): string {
+  if (!Object.prototype.hasOwnProperty.call(value, key)) {
+    issues.push({
+      path: `${commandPath}.${key}`,
+      message: "is required",
+    });
+    return "";
+  }
+
+  const fieldValue = value[key];
+
+  if (typeof fieldValue !== "string" || fieldValue.trim().length === 0) {
+    issues.push({
+      path: `${commandPath}.${key}`,
+      message: "must be a non-empty string",
+    });
+    return "";
+  }
+
+  return fieldValue.trim();
+}
+
+function readPortableDescription(
+  value: Record<string, unknown>,
+  commandPath: string,
+  issues: Array<{ path: string; message: string }>,
+): string | null {
+  if (!Object.prototype.hasOwnProperty.call(value, "description")) {
+    return null;
+  }
+
+  const description = value.description;
+
+  if (description === null) {
+    return null;
+  }
+
+  if (typeof description === "string") {
+    return description.trim().length > 0 ? description.trim() : null;
+  }
+
+  issues.push({
+    path: `${commandPath}.description`,
+    message: "must be a string or null",
+  });
+  return null;
+}
+
+function createImportedCommand(
+  command: CommandVaultPortableCommand,
+  timestamp: string,
+): CommandVaultCommand {
+  const commandRecordWithoutId = {
+    name: command.name,
+    command: command.command,
+    description: command.description,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  } satisfies Omit<CommandVaultCommand, "id">;
+
+  return {
+    id: createImportedCommandId(commandRecordWithoutId),
+    ...commandRecordWithoutId,
+  };
+}
+
+function createImportedCommandId(command: Omit<CommandVaultCommand, "id">): string {
+  return createHash("sha256")
+    .update(
+      [
+        command.name,
+        command.command,
+        command.createdAt,
+        `${Math.random()}`,
+      ].join("\n"),
+    )
+    .digest("hex");
+}
+
+function dedupeCommandsByIdentity(
+  commands: readonly CommandVaultCommand[],
+): CommandVaultCommand[] {
+  const seenIdentities = new Set<string>();
+  const dedupedCommands: CommandVaultCommand[] = [];
+
+  for (const command of commands) {
+    const identity = createCommandIdentity(command);
+
+    if (seenIdentities.has(identity)) {
+      continue;
+    }
+
+    seenIdentities.add(identity);
+    dedupedCommands.push(command);
+  }
+
+  return dedupedCommands;
+}
+
+function createCommandIdentity(command: Pick<CommandVaultCommand, "command" | "name">): string {
+  return `${command.name.trim()}\u0000${command.command.trim()}`;
+}
+
 function defaultNow(): string {
   return new Date().toISOString();
+}
+
+function showInformationMessage(
+  window: CommandVaultImportExportWindow,
+  message: string,
+): void {
+  try {
+    void Promise.resolve(window.showInformationMessage?.(message)).catch(() => {});
+  } catch {
+    // Information messages should not block completed import/export work.
+  }
 }
 
 function getErrorMessage(error: unknown): string {

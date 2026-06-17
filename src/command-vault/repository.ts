@@ -6,7 +6,6 @@ import type {
   CommandVaultCommand,
 } from "./model.ts";
 import {
-  COMMAND_VAULT_GLOBAL_STORAGE_FILE,
   getWorkspaceStorageFilePath,
   validatePersistedCommandRecords,
 } from "./model.ts";
@@ -16,12 +15,8 @@ export interface CommandVaultStorageUri {
 }
 
 export interface CommandVaultRepository {
-  readGlobalCommands(): Promise<CommandVaultCommand[]>;
-  writeGlobalCommands(commands: readonly CommandVaultCommand[]): Promise<void>;
-  readWorkspaceCommands(
-    workspaceId: string | null,
-  ): Promise<CommandVaultCommand[]>;
-  writeWorkspaceCommands(
+  readCommands(workspaceId: string | null): Promise<CommandVaultCommand[]>;
+  writeCommands(
     workspaceId: string,
     commands: readonly CommandVaultCommand[],
   ): Promise<void>;
@@ -36,53 +31,35 @@ export type CommandVaultWarningHandler = (
 ) => void | Promise<void>;
 
 export function createCommandVaultRepository(
-  globalStorageUri: CommandVaultStorageUri,
+  storageUri: CommandVaultStorageUri,
   options: CommandVaultRepositoryOptions = {},
 ): CommandVaultRepository {
   return {
-    async readGlobalCommands() {
-      return readCommandsFile(
-        getGlobalCommandsStoragePath(globalStorageUri.fsPath),
-        options.onWarning,
-      );
-    },
-
-    async writeGlobalCommands(commands) {
-      await writeCommandsFile(
-        getGlobalCommandsStoragePath(globalStorageUri.fsPath),
-        commands,
-      );
-    },
-
-    async readWorkspaceCommands(workspaceId) {
+    async readCommands(workspaceId) {
       if (workspaceId === null) {
         return [];
       }
 
       return readCommandsFile(
-        getWorkspaceCommandsStoragePath(globalStorageUri.fsPath, workspaceId),
+        getCommandsStoragePath(storageUri.fsPath, workspaceId),
         options.onWarning,
       );
     },
 
-    async writeWorkspaceCommands(workspaceId, commands) {
+    async writeCommands(workspaceId, commands) {
       await writeCommandsFile(
-        getWorkspaceCommandsStoragePath(globalStorageUri.fsPath, workspaceId),
+        getCommandsStoragePath(storageUri.fsPath, workspaceId),
         commands,
       );
     },
   };
 }
 
-function getGlobalCommandsStoragePath(globalStorageFsPath: string): string {
-  return join(globalStorageFsPath, COMMAND_VAULT_GLOBAL_STORAGE_FILE);
-}
-
-function getWorkspaceCommandsStoragePath(
-  globalStorageFsPath: string,
+function getCommandsStoragePath(
+  storageFsPath: string,
   workspaceId: string,
 ): string {
-  return join(globalStorageFsPath, getWorkspaceStorageFilePath(workspaceId));
+  return join(storageFsPath, getWorkspaceStorageFilePath(workspaceId));
 }
 
 async function readCommandsFile(

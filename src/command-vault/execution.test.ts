@@ -12,7 +12,6 @@ import {
 
 const SAMPLE_COMMAND: CommandVaultCommand = {
   id: "command_workspace_dev",
-  scope: "workspace",
   name: "Start app",
   command: "npm run dev",
   description: null,
@@ -104,29 +103,23 @@ describe("command vault execution service", () => {
     assert.deepEqual(clipboardWrites, ["npm run dev"]);
   });
 
-  it("resolves stored commands by scope and warns when a workspace target is unavailable", async () => {
+  it("resolves stored commands and warns when a workspace is unavailable", async () => {
     const warnings: string[] = [];
-    const storedGlobalCommand: CommandVaultCommand = {
+    const storedCommand: CommandVaultCommand = {
       ...SAMPLE_COMMAND,
-      id: "command_global_dev",
-      scope: "global",
+      id: "command_dev",
     };
     const repository = {
-      async readGlobalCommands() {
-        return [storedGlobalCommand];
+      async readCommands() {
+        return [storedCommand];
       },
-      async readWorkspaceCommands() {
-        throw new Error("workspace commands should not be read");
-      },
-      async writeGlobalCommands() {},
-      async writeWorkspaceCommands() {},
+      async writeCommands() {},
     };
 
-    const resolvedGlobalCommand = await resolveStoredCommandForAction(
+    const resolvedCommand = await resolveStoredCommandForAction(
       "copy",
       {
-        id: storedGlobalCommand.id,
-        scope: storedGlobalCommand.scope,
+        id: storedCommand.id,
       },
       {
         repository,
@@ -136,15 +129,14 @@ describe("command vault execution service", () => {
           },
         },
         workspace: {
-          workspaceFolders: undefined,
+          workspaceFolders: [{ uri: { fsPath: "/tmp/project" } }],
         },
       },
     );
-    const resolvedWorkspaceCommand = await resolveStoredCommandForAction(
+    const missingWorkspaceCommand = await resolveStoredCommandForAction(
       "run",
       {
         id: "workspace-missing",
-        scope: "workspace",
       },
       {
         repository,
@@ -159,10 +151,10 @@ describe("command vault execution service", () => {
       },
     );
 
-    assert.deepEqual(resolvedGlobalCommand, storedGlobalCommand);
-    assert.equal(resolvedWorkspaceCommand, undefined);
+    assert.deepEqual(resolvedCommand, storedCommand);
+    assert.equal(missingWorkspaceCommand, undefined);
     assert.deepEqual(warnings, [
-      "Command Vault needs an open workspace to run workspace commands.",
+      "Command Vault needs an open workspace to run commands.",
     ]);
   });
 });

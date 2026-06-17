@@ -30,7 +30,7 @@ It's as simple as:
 ## Features at a glance
 
 - **Two interfaces**: Search and dispatch commands from the VS Code Quick Pick, or manage your full catalog from the Command Vault sidebar.
-- **Workspace scoped**: Save commands to the active workspace so project commands stay with the project they belong to.
+- **Workspace-local**: Save commands to the active workspace so project commands stay with the project they belong to.
 - **Three execution modes**: `Run` sends the command with a trailing newline. `Paste` sends it without a newline. `Copy` writes it to your clipboard.
 - **Keyboard shortcuts**: `Enter` runs, `Alt/Option+Enter` pastes, `Cmd/Ctrl+Enter` edits — directly from the search results.
 - **Workspace isolation**: Workspace commands are stored per-workspace using a hashed workspace ID, so they never leak between projects.
@@ -62,7 +62,7 @@ The Quick Pick searches across name, description, and command content. Matching 
 
 The sidebar gives you a persistent view of your workspace commands. Click **Create Command** to add a new one, or use the action buttons on any command card to run, paste, copy, edit, or delete.
 
-The sidebar is scoped to the active workspace and shows the commands saved for that workspace.
+The sidebar shows the commands saved for the active workspace.
 
 ## Commands
 
@@ -75,7 +75,7 @@ The sidebar is scoped to the active workspace and shows the commands saved for t
 | **Command Vault: Run Command** | Run a stored command in the terminal. |
 | **Command Vault: Search Commands** | Open the Quick Pick to search and dispatch commands. |
 
-## Workspace scope
+## Workspace Storage
 
 Commands are stored per workspace, identified by a hash of the workspace root path. This keeps project-specific scripts, build commands, CI snippets, and local workflows isolated to the project they were created for.
 
@@ -94,13 +94,12 @@ You can change the default execution behavior (`Enter` → run or paste) in **Se
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
 | `commandVault.defaultExecutionBehavior` | `run` \| `paste` | `run` | Whether `Enter` in the Quick Pick runs or pastes the command. |
-| `commandVault.enableWorkspaceScope` | `boolean` | `true` | Show workspace commands in the Quick Pick and sidebar. |
 
 ## Storage
 
 Command records are stored as JSON files:
 
-- **Workspace**: `{extension-globalStorageUri}/workspaces/{workspaceId}.json`
+- `{extension storage root}/workspaces/{workspaceId}.json`
 
 Each workspace is identified by a SHA-256 hash of its root path, ensuring isolation between projects. On load, records are validated; malformed or invalid entries are reported as warnings and skipped.
 
@@ -114,13 +113,24 @@ Command Vault imports and exports commands as JSON files only. The export save d
 {
   "version": "1.0",
   "exportedAt": "2026-06-11T14:30:00.000Z",
-  "commands": []
+  "commands": [
+    {
+      "name": "Run server",
+      "command": "npm run dev",
+      "description": "Starts the development server"
+    }
+  ]
 }
 ```
 
 - `version` — the payload schema version (currently `"1.0"`).
 - `exportedAt` — the ISO-8601 timestamp captured when the export was created.
-- `commands` — the saved command records; global and workspace commands are merged into a single array.
+- `commands` — the saved commands for the current workspace.
+- `commands[].name` — the display name shown in Command Vault.
+- `commands[].command` — the terminal command text.
+- `commands[].description` — an optional description. Use `null` or omit the field when there is no description.
+
+Import is idempotent: importing the same file multiple times will not create duplicate commands. Existing commands are matched by `name` and `command`; if a matching command has a different description, the import updates that description.
 
 ## TypeScript
 

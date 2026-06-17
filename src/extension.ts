@@ -1,4 +1,4 @@
-import { createWorkspaceId, type CommandVaultCommand, type CommandVaultScope } from "./command-vault/model.ts";
+import { createWorkspaceId, type CommandVaultCommand } from "./command-vault/model.ts";
 import {
   COMMAND_VAULT_CREATE_COMMAND_ID,
   createCommandVaultCreateService,
@@ -25,7 +25,6 @@ import {
 } from "./command-vault/search-command.ts";
 import {
   COMMAND_VAULT_CONFIGURATION_SECTION,
-  isCommandVaultScopeEnabled,
   readCommandVaultSettings,
 } from "./command-vault/settings.ts";
 import { createCommandVaultSidebarProvider, type CommandVaultSidebarCreateCommandMessage, type CommandVaultSidebarUpdateCommandMessage } from "./command-vault/sidebar.ts";
@@ -70,6 +69,12 @@ export interface CommandVaultExtensionHost {
   env: {
     clipboard: {
       writeText(text: string): void | Promise<void>;
+    };
+  };
+  Uri?: {
+    file(path: string): {
+      fsPath: string;
+      scheme?: string;
     };
   };
   window: {
@@ -138,7 +143,7 @@ export interface CommandVaultExtensionHost {
       title?: string;
     }): Promise<Array<{ fsPath: string }> | undefined>;
     showSaveDialog?(options: {
-      defaultUri?: { fsPath: string };
+      defaultUri?: { fsPath: string; scheme?: string };
       filters?: Record<string, string[]>;
       saveLabel?: string;
       title?: string;
@@ -181,13 +186,11 @@ export function activate(
     },
   });
   const createCommand = createCommandVaultCreateService({
-    getSettings,
     repository,
     window: resolvedHost.window,
     workspace: resolvedHost.workspace,
   });
   const editDeleteCommand = createCommandVaultEditDeleteService({
-    getSettings,
     repository,
     window: resolvedHost.window,
     workspace: resolvedHost.workspace,
@@ -216,6 +219,7 @@ export function activate(
   });
   const importExport = createCommandVaultImportExportService({
     repository,
+    uriFactory: resolvedHost.Uri,
     window: resolvedHost.window,
     workspace: resolvedHost.workspace,
   });
@@ -237,7 +241,7 @@ export function activate(
           await handleSidebarCopyCommand(message.target);
           return;
         case "create":
-          await handleCreateCommand(message.target?.scope);
+          await handleCreateCommand();
           return;
         case "delete":
           await handleSidebarDeleteCommand(message.target);
@@ -265,8 +269,8 @@ export function activate(
   const refreshSidebar = async () => {
     await sidebarProvider.refresh();
   };
-  const handleCreateCommand = async (requestedScope?: CommandVaultScope) => {
-    const createdCommand = await createCommand.createCommand(requestedScope);
+  const handleCreateCommand = async () => {
+    const createdCommand = await createCommand.createCommand();
 
     if (createdCommand) {
       await refreshSidebar();
@@ -275,16 +279,9 @@ export function activate(
   const handleInlineCreateCommand = async (
     message: CommandVaultSidebarCreateCommandMessage,
   ) => {
-    const scope = message.target.scope;
-
-    if (scope !== "workspace" || !(await validateScopeEnabled(scope))) {
-      return;
-    }
-
     const timestamp = new Date().toISOString();
     const commandRecord: CommandVaultCommand = {
-      id: `${scope}-${timestamp}`,
-      scope,
+      id: `command-${timestamp}`,
       name: message.input.name,
       command: message.input.command,
       description:
@@ -297,14 +294,14 @@ export function activate(
 
     if (!workspaceFolderPath) {
       await resolvedHost.window.showWarningMessage(
-        "Command Vault needs an open workspace to create workspace commands.",
+        "Command Vault needs an open workspace to create commands.",
       );
       return;
     }
 
     const workspaceId = createWorkspaceId(workspaceFolderPath);
-    const commands = await repository.readWorkspaceCommands(workspaceId);
-    await repository.writeWorkspaceCommands(workspaceId, [commandRecord, ...commands]);
+    const commands = await repository.readCommands(workspaceId);
+    await repository.writeCommands(workspaceId, [commandRecord, ...commands]);
     await refreshSidebar();
   };
   const handleExportCommands = async () => {
@@ -317,21 +314,17 @@ export function activate(
   const handleInlineUpdateCommand = async (
     message: CommandVaultSidebarUpdateCommandMessage,
   ) => {
-    if (message.target.scope !== "workspace" || !(await validateScopeEnabled(message.target.scope))) {
-      return;
-    }
-
     const workspaceFolderPath = resolvedHost.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
     if (!workspaceFolderPath) {
       await resolvedHost.window.showWarningMessage(
-        "Command Vault needs an open workspace to edit workspace commands.",
+        "Command Vault needs an open workspace to edit commands.",
       );
       return;
     }
 
     const workspaceId = createWorkspaceId(workspaceFolderPath);
-    const commands = await repository.readWorkspaceCommands(workspaceId);
+    const commands = await repository.readCommands(workspaceId);
     let updated = false;
     const updatedCommands = commands.map((command) => {
       if (command.id !== message.target.id) {
@@ -353,14 +346,13 @@ export function activate(
       return;
     }
 
-    await repository.writeWorkspaceCommands(workspaceId, updatedCommands);
+    await repository.writeCommands(workspaceId, updatedCommands);
     await refreshSidebar();
   };
   const resolveSidebarCommandTarget = (
     target:
       | {
           id?: string;
-          scope: CommandVaultScope;
         }
       | undefined,
   ) => {
@@ -370,12 +362,10 @@ export function activate(
 
     return {
       id: target.id,
-      scope: target.scope,
     };
   };
   const handleSidebarEditCommand = async (target?: {
     id?: string;
-    scope: CommandVaultScope;
   }) => {
     const commandTarget = resolveSidebarCommandTarget(target);
 
@@ -387,7 +377,6 @@ export function activate(
   };
   const handleSidebarDeleteCommand = async (target?: {
     id?: string;
-    scope: CommandVaultScope;
   }) => {
     const commandTarget = resolveSidebarCommandTarget(target);
 
@@ -399,7 +388,6 @@ export function activate(
   };
   const handleSidebarRunCommand = async (target?: {
     id?: string;
-    scope: CommandVaultScope;
   }) => {
     const commandTarget = resolveSidebarCommandTarget(target);
 
@@ -411,7 +399,6 @@ export function activate(
   };
   const handleSidebarPasteCommand = async (target?: {
     id?: string;
-    scope: CommandVaultScope;
   }) => {
     const commandTarget = resolveSidebarCommandTarget(target);
 
@@ -423,7 +410,6 @@ export function activate(
   };
   const handleSidebarCopyCommand = async (target?: {
     id?: string;
-    scope: CommandVaultScope;
   }) => {
     const commandTarget = resolveSidebarCommandTarget(target);
 
@@ -435,7 +421,6 @@ export function activate(
   };
   const handleEditCommand = async (target?: {
     id: string;
-    scope: CommandVaultScope;
   }) => {
     const updatedCommand = await editDeleteCommand.editCommand(target);
 
@@ -445,7 +430,6 @@ export function activate(
   };
   const handleDeleteCommand = async (target?: {
     id: string;
-    scope: CommandVaultScope;
   }) => {
     const deletedCommand = await editDeleteCommand.deleteCommand(target);
 
@@ -455,12 +439,7 @@ export function activate(
   };
   const handleRunCommand = async (target?: {
     id: string;
-    scope: CommandVaultScope;
   }) => {
-    if (!(await validateScopeEnabled(target?.scope))) {
-      return;
-    }
-
     const command = await resolveStoredCommandForAction("run", target, {
       repository,
       window: resolvedHost.window,
@@ -475,12 +454,7 @@ export function activate(
   };
   const handlePasteCommand = async (target?: {
     id: string;
-    scope: CommandVaultScope;
   }) => {
-    if (!(await validateScopeEnabled(target?.scope))) {
-      return;
-    }
-
     const command = await resolveStoredCommandForAction("paste", target, {
       repository,
       window: resolvedHost.window,
@@ -495,12 +469,7 @@ export function activate(
   };
   const handleCopyCommand = async (target?: {
     id: string;
-    scope: CommandVaultScope;
   }) => {
-    if (!(await validateScopeEnabled(target?.scope))) {
-      return;
-    }
-
     const command = await resolveStoredCommandForAction("copy", target, {
       repository,
       window: resolvedHost.window,
@@ -513,45 +482,23 @@ export function activate(
 
     await execution.copyCommand(command);
   };
-  const validateScopeEnabled = async (
-    scope: CommandVaultScope | undefined,
-  ): Promise<boolean> => {
-    if (!scope || isCommandVaultScopeEnabled(scope, getSettings())) {
-      return true;
-    }
-
-    await resolvedHost.window.showWarningMessage(
-      `Command Vault ${scope} commands are disabled in settings.`,
-    );
-    return false;
-  };
   const dispatchSearchSelection = async (selection: {
     action: "edit" | "paste" | "run";
     command: {
       command: string;
       id: string;
-      scope: CommandVaultScope;
     };
   }) => {
     switch (selection.action) {
       case "edit":
         await handleEditCommand({
           id: selection.command.id,
-          scope: selection.command.scope,
         });
         return;
       case "paste":
-        if (!(await validateScopeEnabled(selection.command.scope))) {
-          return;
-        }
-
         await execution.pasteCommand(selection.command);
         return;
       case "run":
-        if (!(await validateScopeEnabled(selection.command.scope))) {
-          return;
-        }
-
         await execution.runCommand(selection.command);
         return;
     }
