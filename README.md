@@ -29,24 +29,15 @@ Command Vault: Search Commands
 
 ### Create a Command
 
-1. Click **+ New Command** in the sidebar
-2. Enter a name and your terminal command
-3. Choose **Workspace** or **Global** scope
-4. Click **Save**
+1. Open a workspace folder (required)
+2. Click **+** in the sidebar toolbar
+3. Enter a name, terminal command, and optional description
+4. Click the checkmark to save
 
 ### Run a Command
 
 - Click the **Run** button on any command card
 - Or search for a command and press **Enter** to execute it
-
-## Features
-
-- **Dual Scopes** — Workspace commands for project-specific scripts, Global commands available across all projects
-- **Card-based UI** — Commands displayed as cards with always-visible actions (Run, Copy, Edit, Delete)
-- **Quick Search** — Fuzzy search across all commands via Quick Pick (`Alt+Enter` to paste without running)
-- **Variable Placeholders** — Use `{{variableName}}` syntax for prompts before execution
-- **Integrated Terminal** — Commands run directly in VS Code's integrated terminal
-- **Import/Export** — Share your command collections easily
 
 ## Commands
 
@@ -66,21 +57,6 @@ Command Vault: Search Commands
 | `Alt+Enter` (in Quick Pick) | Paste command without running |
 | `Cmd/Ctrl+Enter` (in Quick Pick) | Edit selected command |
 
-## Variable Placeholders
-
-Use `{{placeholder}}` syntax in commands to prompt for values before execution:
-
-```
-git checkout {{branchName}}
-pnpm --filter {{packageName}} test
-```
-
-Built-in VS Code variables are also supported:
-
-- `${workspaceFolder}` — Current workspace path
-- `${file}` — Active file path
-- `${selectedText}` — Selected text in editor
-
 ## Configuration
 
 ```json
@@ -94,10 +70,7 @@ Built-in VS Code variables are also supported:
 
 ## Data Storage
 
-- **Workspace** — Stored in extension global storage, keyed by workspace ID
-- **Global** — Available across all workspaces, stored in extension global storage
-
-Data is stored as JSON files in VS Code's extension storage directory, making it easy to inspect, backup, and migrate.
+Commands are stored as JSON in `workspaces/{workspaceId}.json` within VS Code's extension storage directory, where `workspaceId` is a SHA-256 hash of the workspace folder path. This makes it easy to inspect, backup, and migrate your commands.
 
 ## Links
 
