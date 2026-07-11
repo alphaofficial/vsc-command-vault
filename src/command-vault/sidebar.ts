@@ -365,6 +365,25 @@ export function renderCommandVaultSidebarHtml(
         cursor: pointer;
         color: var(--vscode-icon-foreground, var(--vscode-foreground));
         background: transparent;
+        position: relative;
+      }
+
+      .sidebar-action[data-tooltip]:hover::after,
+      .command-action[data-tooltip]:hover::after {
+        position: absolute;
+        z-index: 10;
+        top: calc(100% + 6px);
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 4px 6px;
+        border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+        color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+        background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+        content: attr(data-tooltip);
+        font-size: calc(var(--vscode-font-size) * 0.85);
+        line-height: 1.2;
+        white-space: nowrap;
+        pointer-events: none;
       }
 
       .sidebar-action.secondary,
@@ -758,8 +777,8 @@ function renderCreateCommandForm(state: CommandVaultSidebarState): string {
     '<form class="create-command-form" aria-label="Create command" hidden>',
     renderCommandFormFields(),
     '<div class="form-actions">',
-    '<button class="sidebar-action form-action" type="submit" aria-label="Save command" title="Save command"><span aria-hidden="true" class="action-icon">✓</span></button>',
-    '<button class="sidebar-action form-action secondary" type="button" data-command-vault-action="cancel-form" aria-label="Cancel create command" title="Cancel create command"><span aria-hidden="true" class="action-icon">×</span></button>',
+    '<button class="sidebar-action form-action" type="submit" data-tooltip="Save" aria-label="Save command" title="Save command"><span aria-hidden="true" class="action-icon">✓</span></button>',
+    '<button class="sidebar-action form-action secondary" type="button" data-command-vault-action="cancel-form" data-tooltip="Cancel" aria-label="Cancel create command" title="Cancel create command"><span aria-hidden="true" class="action-icon">×</span></button>',
     '</div>',
     "</form>",
   ].join("");
@@ -817,8 +836,8 @@ function renderEditCommandForm(command: CommandVaultCommand): string {
     `<form class="create-command-form edit-command-form" aria-label="Edit ${escapeHtmlAttribute(command.name)} command" hidden data-command-id="${escapeHtmlAttribute(command.id)}">`,
     renderCommandFormFields(command),
     '<div class="form-actions">',
-    `<button class="sidebar-action form-action" type="submit" aria-label="Save ${escapeHtmlAttribute(command.name)} command" title="Save ${escapeHtmlAttribute(command.name)} command"><span aria-hidden="true" class="action-icon">✓</span></button>`,
-    `<button class="sidebar-action form-action secondary" type="button" data-command-vault-action="cancel-form" aria-label="Cancel editing ${escapeHtmlAttribute(command.name)} command" title="Cancel editing ${escapeHtmlAttribute(command.name)} command"><span aria-hidden="true" class="action-icon">×</span></button>`,
+    `<button class="sidebar-action form-action" type="submit" data-tooltip="Save" aria-label="Save ${escapeHtmlAttribute(command.name)} command" title="Save ${escapeHtmlAttribute(command.name)} command"><span aria-hidden="true" class="action-icon">✓</span></button>`,
+    `<button class="sidebar-action form-action secondary" type="button" data-command-vault-action="cancel-form" data-tooltip="Cancel" aria-label="Cancel editing ${escapeHtmlAttribute(command.name)} command" title="Cancel editing ${escapeHtmlAttribute(command.name)} command"><span aria-hidden="true" class="action-icon">×</span></button>`,
     '</div>',
     "</form>",
   ].join("");
@@ -840,6 +859,7 @@ function renderActionButton(
     ' type="button"',
     ` data-command-vault-action="${escapeHtmlAttribute(action)}"`,
     ` data-command-id="${escapeHtmlAttribute(command.id)}"`,
+    ` data-tooltip="${escapeHtmlAttribute(label)}"`,
     ` aria-label="${escapeHtmlAttribute(`${label} ${command.name}`)}"`,
     ` title="${escapeHtmlAttribute(`${label} ${command.name}`)}">`,
     `<span aria-hidden="true" class="action-icon">${icon}</span>`,
