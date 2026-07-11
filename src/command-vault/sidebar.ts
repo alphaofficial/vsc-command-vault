@@ -372,6 +372,21 @@ export function renderCommandVaultSidebarHtml(
         color: var(--vscode-descriptionForeground, var(--vscode-foreground));
       }
 
+      .command-action[data-command-vault-action="run"],
+      .command-action[data-command-vault-action="run"]:hover {
+        color: var(--vscode-testing-iconPassed, #73c991);
+      }
+
+      .command-action[data-command-vault-action="edit"],
+      .command-action[data-command-vault-action="edit"]:hover {
+        color: var(--vscode-charts-blue, #3794ff);
+      }
+
+      .command-action[data-command-vault-action="delete"],
+      .command-action[data-command-vault-action="delete"]:hover {
+        color: var(--vscode-errorForeground, #f14c4c);
+      }
+
       .sidebar-action:hover,
       .command-action:hover {
         color: var(--vscode-foreground);
@@ -390,6 +405,12 @@ export function renderCommandVaultSidebarHtml(
         font-size: 24px;
       }
 
+      .action-icon svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
       .action-text {
         font-size: calc(var(--vscode-font-size) * 0.85);
         letter-spacing: 0.04em;
@@ -397,9 +418,9 @@ export function renderCommandVaultSidebarHtml(
       }
 
       .command-action .action-icon {
-        width: 18px;
-        height: 18px;
-        font-size: 18px;
+        width: 19px;
+        min-width: 19px;
+        height: 19px;
       }
 
       .create-command-form {
@@ -812,7 +833,7 @@ function renderActionButton(
   const className = variant
     ? `command-action ${variant}`
     : "command-action";
-  const icon = getCommandActionIcon(action);
+  const icon = renderCommandActionIcon(action);
 
   return [
     `<button class="${className}"`,
@@ -821,9 +842,22 @@ function renderActionButton(
     ` data-command-id="${escapeHtmlAttribute(command.id)}"`,
     ` aria-label="${escapeHtmlAttribute(`${label} ${command.name}`)}"`,
     ` title="${escapeHtmlAttribute(`${label} ${command.name}`)}">`,
-    `<span aria-hidden="true" class="action-icon">${escapeHtml(icon)}</span>`,
+    `<span aria-hidden="true" class="action-icon">${icon}</span>`,
     "</button>",
   ].join("");
+}
+
+function renderCommandActionIcon(action: CommandVaultSidebarAction): string {
+  switch (action) {
+    case "delete":
+      return '<svg viewBox="0 0 24 24" focusable="false"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" /></svg>';
+    case "edit":
+      return '<svg viewBox="0 0 24 24" focusable="false"><path d="M4 7h4M14 7h6M4 17h6M16 17h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><circle cx="11" cy="7" r="3" fill="none" stroke="currentColor" stroke-width="2" /><circle cx="13" cy="17" r="3" fill="none" stroke="currentColor" stroke-width="2" /></svg>';
+    case "run":
+      return '<svg viewBox="0 0 24 24" focusable="false"><path d="M8 5v14l11-7z" fill="currentColor" /></svg>';
+    default:
+      return escapeHtml(getCommandActionIcon(action));
+  }
 }
 
 function getCommandActionIcon(action: CommandVaultSidebarAction): string {
@@ -833,9 +867,9 @@ function getCommandActionIcon(action: CommandVaultSidebarAction): string {
     case "copy":
       return "⧉";
     case "delete":
-      return "⌫";
+      return "×";
     case "edit":
-      return "✎";
+      return "⚙︎";
     case "export":
       return "Export";
     case "import":
