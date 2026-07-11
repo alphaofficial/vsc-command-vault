@@ -61,12 +61,20 @@ Command Vault: Search Commands
 
 ```json
 {
-  "commandVault.defaultExecutionBehavior": "run" | "paste"
+  "commandVault.defaultExecutionBehavior": "run" | "paste",
+  "commandVault.terminalExecutionMode": "current" | "dedicated"
 }
 ```
 
+### Default execution behavior
+
 - **run** — Sends the command and executes it on Enter
 - **paste** — Sends the command without a trailing newline on Enter
+
+### Terminal execution mode
+
+- **current** — Uses the active terminal when one exists, otherwise creates a Command Vault terminal
+- **dedicated** — Creates and reuses one terminal per command; if that terminal is closed, the next run creates it again
 
 ## Data Storage
 
