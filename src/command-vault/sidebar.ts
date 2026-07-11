@@ -279,6 +279,7 @@ export function renderCommandVaultSidebarHtml(
       .command-card {
         display: grid;
         gap: 12px;
+        min-width: 0;
         padding: 14px;
         border: 1px solid var(--vscode-panel-border);
         background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent);
@@ -291,6 +292,7 @@ export function renderCommandVaultSidebarHtml(
       .command-copy-block {
         display: grid;
         gap: 8px;
+        min-width: 0;
       }
 
       .command-title-row {
@@ -312,10 +314,18 @@ export function renderCommandVaultSidebarHtml(
         line-height: 1.4;
       }
 
+      .command-display {
+        position: relative;
+        min-width: 0;
+        width: 100%;
+      }
+
       .command-text {
+        display: block;
+        min-width: 0;
+        width: 100%;
         margin: 0;
-        padding: 10px 12px;
-        overflow-x: auto;
+        padding: 10px 44px 10px 12px;
         background: var(--vscode-textCodeBlock-background, color-mix(in srgb, var(--vscode-editor-background) 88%, black));
         color: var(--vscode-textPreformat-foreground, var(--vscode-foreground));
         font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
@@ -324,6 +334,13 @@ export function renderCommandVaultSidebarHtml(
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      .command-display .command-action {
+        position: absolute;
+        top: 50%;
+        right: 10px;
+        transform: translateY(-50%);
       }
 
       .command-actions {
@@ -348,11 +365,45 @@ export function renderCommandVaultSidebarHtml(
         cursor: pointer;
         color: var(--vscode-icon-foreground, var(--vscode-foreground));
         background: transparent;
+        position: relative;
+      }
+
+      .sidebar-action[data-tooltip]:hover::after,
+      .command-action[data-tooltip]:hover::after {
+        position: absolute;
+        z-index: 10;
+        top: calc(100% + 6px);
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 4px 6px;
+        border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+        color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+        background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+        content: attr(data-tooltip);
+        font-size: calc(var(--vscode-font-size) * 0.85);
+        line-height: 1.2;
+        white-space: nowrap;
+        pointer-events: none;
       }
 
       .sidebar-action.secondary,
       .command-action.secondary {
         color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+      }
+
+      .command-action[data-command-vault-action="run"],
+      .command-action[data-command-vault-action="run"]:hover {
+        color: var(--vscode-testing-iconPassed, #73c991);
+      }
+
+      .command-action[data-command-vault-action="edit"],
+      .command-action[data-command-vault-action="edit"]:hover {
+        color: var(--vscode-charts-blue, #3794ff);
+      }
+
+      .command-action[data-command-vault-action="delete"],
+      .command-action[data-command-vault-action="delete"]:hover {
+        color: var(--vscode-errorForeground, #f14c4c);
       }
 
       .sidebar-action:hover,
@@ -373,6 +424,12 @@ export function renderCommandVaultSidebarHtml(
         font-size: 24px;
       }
 
+      .action-icon svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
       .action-text {
         font-size: calc(var(--vscode-font-size) * 0.85);
         letter-spacing: 0.04em;
@@ -380,9 +437,9 @@ export function renderCommandVaultSidebarHtml(
       }
 
       .command-action .action-icon {
-        width: 18px;
-        height: 18px;
-        font-size: 18px;
+        width: 19px;
+        min-width: 19px;
+        height: 19px;
       }
 
       .create-command-form {
@@ -523,6 +580,10 @@ export function renderCommandVaultSidebarHtml(
           return;
         }
 
+        if (action === "copy") {
+          showCopyFeedback(button);
+        }
+
         if (!action) {
           return;
         }
@@ -538,6 +599,34 @@ export function renderCommandVaultSidebarHtml(
 
         vscode.postMessage(message);
       });
+
+      function showCopyFeedback(button) {
+        const icon = button.querySelector(".action-icon");
+
+        if (!(icon instanceof HTMLElement)) {
+          return;
+        }
+
+        const previousText = icon.textContent;
+        const previousLabel = button.getAttribute("aria-label");
+        const previousTitle = button.getAttribute("title");
+
+        icon.textContent = "✓";
+        button.setAttribute("aria-label", "Copied");
+        button.setAttribute("title", "Copied");
+
+        window.setTimeout(() => {
+          icon.textContent = previousText;
+
+          if (previousLabel) {
+            button.setAttribute("aria-label", previousLabel);
+          }
+
+          if (previousTitle) {
+            button.setAttribute("title", previousTitle);
+          }
+        }, 900);
+      }
 
       document.addEventListener("submit", (event) => {
         const form = event.target;
@@ -688,8 +777,8 @@ function renderCreateCommandForm(state: CommandVaultSidebarState): string {
     '<form class="create-command-form" aria-label="Create command" hidden>',
     renderCommandFormFields(),
     '<div class="form-actions">',
-    '<button class="sidebar-action form-action" type="submit" aria-label="Save command" title="Save command"><span aria-hidden="true" class="action-icon">✓</span></button>',
-    '<button class="sidebar-action form-action secondary" type="button" data-command-vault-action="cancel-form" aria-label="Cancel create command" title="Cancel create command"><span aria-hidden="true" class="action-icon">×</span></button>',
+    '<button class="sidebar-action form-action" type="submit" data-tooltip="Save" aria-label="Save command" title="Save command"><span aria-hidden="true" class="action-icon">✓</span></button>',
+    '<button class="sidebar-action form-action secondary" type="button" data-command-vault-action="cancel-form" data-tooltip="Cancel" aria-label="Cancel create command" title="Cancel create command"><span aria-hidden="true" class="action-icon">×</span></button>',
     '</div>',
     "</form>",
   ].join("");
@@ -727,14 +816,15 @@ function renderCommandCard(command: CommandVaultCommand): string {
     `<h3 class="command-name">${escapeHtml(command.name)}</h3>`,
     '<div class="command-actions" aria-label="Command actions">',
     renderActionButton("Run", "run", command),
-    renderActionButton("Paste", "paste", command, "secondary"),
-    renderActionButton("Copy", "copy", command, "secondary"),
     renderActionButton("Edit", "edit", command, "secondary"),
     renderActionButton("Delete", "delete", command, "secondary"),
     "</div>",
     "</div>",
     description,
-    `<pre class="command-text" title="${escapeHtmlAttribute(command.command)}">${escapeHtml(truncateCommand(command.command))}</pre>`,
+    '<div class="command-display">',
+    `<pre class="command-text" title="${escapeHtmlAttribute(command.command)}">${escapeHtml(command.command)}</pre>`,
+    renderActionButton("Copy", "copy", command, "secondary"),
+    "</div>",
     "</div>",
     renderEditCommandForm(command),
     "</li>",
@@ -746,8 +836,8 @@ function renderEditCommandForm(command: CommandVaultCommand): string {
     `<form class="create-command-form edit-command-form" aria-label="Edit ${escapeHtmlAttribute(command.name)} command" hidden data-command-id="${escapeHtmlAttribute(command.id)}">`,
     renderCommandFormFields(command),
     '<div class="form-actions">',
-    `<button class="sidebar-action form-action" type="submit" aria-label="Save ${escapeHtmlAttribute(command.name)} command" title="Save ${escapeHtmlAttribute(command.name)} command"><span aria-hidden="true" class="action-icon">✓</span></button>`,
-    `<button class="sidebar-action form-action secondary" type="button" data-command-vault-action="cancel-form" aria-label="Cancel editing ${escapeHtmlAttribute(command.name)} command" title="Cancel editing ${escapeHtmlAttribute(command.name)} command"><span aria-hidden="true" class="action-icon">×</span></button>`,
+    `<button class="sidebar-action form-action" type="submit" data-tooltip="Save" aria-label="Save ${escapeHtmlAttribute(command.name)} command" title="Save ${escapeHtmlAttribute(command.name)} command"><span aria-hidden="true" class="action-icon">✓</span></button>`,
+    `<button class="sidebar-action form-action secondary" type="button" data-command-vault-action="cancel-form" data-tooltip="Cancel" aria-label="Cancel editing ${escapeHtmlAttribute(command.name)} command" title="Cancel editing ${escapeHtmlAttribute(command.name)} command"><span aria-hidden="true" class="action-icon">×</span></button>`,
     '</div>',
     "</form>",
   ].join("");
@@ -762,18 +852,32 @@ function renderActionButton(
   const className = variant
     ? `command-action ${variant}`
     : "command-action";
-  const icon = getCommandActionIcon(action);
+  const icon = renderCommandActionIcon(action);
 
   return [
     `<button class="${className}"`,
     ' type="button"',
     ` data-command-vault-action="${escapeHtmlAttribute(action)}"`,
     ` data-command-id="${escapeHtmlAttribute(command.id)}"`,
+    ` data-tooltip="${escapeHtmlAttribute(label)}"`,
     ` aria-label="${escapeHtmlAttribute(`${label} ${command.name}`)}"`,
     ` title="${escapeHtmlAttribute(`${label} ${command.name}`)}">`,
-    `<span aria-hidden="true" class="action-icon">${escapeHtml(icon)}</span>`,
+    `<span aria-hidden="true" class="action-icon">${icon}</span>`,
     "</button>",
   ].join("");
+}
+
+function renderCommandActionIcon(action: CommandVaultSidebarAction): string {
+  switch (action) {
+    case "delete":
+      return '<svg viewBox="0 0 24 24" focusable="false"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" /></svg>';
+    case "edit":
+      return '<svg viewBox="0 0 24 24" focusable="false"><path d="M4 7h4M14 7h6M4 17h6M16 17h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><circle cx="11" cy="7" r="3" fill="none" stroke="currentColor" stroke-width="2" /><circle cx="13" cy="17" r="3" fill="none" stroke="currentColor" stroke-width="2" /></svg>';
+    case "run":
+      return '<svg viewBox="0 0 24 24" focusable="false"><path d="M8 5v14l11-7z" fill="currentColor" /></svg>';
+    default:
+      return escapeHtml(getCommandActionIcon(action));
+  }
 }
 
 function getCommandActionIcon(action: CommandVaultSidebarAction): string {
@@ -783,9 +887,9 @@ function getCommandActionIcon(action: CommandVaultSidebarAction): string {
     case "copy":
       return "⧉";
     case "delete":
-      return "⌫";
+      return "×";
     case "edit":
-      return "✎";
+      return "⚙︎";
     case "export":
       return "Export";
     case "import":
@@ -940,16 +1044,6 @@ function isCommandVaultSidebarAction(
     value === "paste" ||
     value === "run"
   );
-}
-
-function truncateCommand(command: string): string {
-  const maxLength = 55;
-
-  if (command.length <= maxLength) {
-    return command;
-  }
-
-  return `${command.slice(0, maxLength - 1)}…`;
 }
 
 function escapeHtml(value: string): string {

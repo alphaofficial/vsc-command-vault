@@ -10,6 +10,7 @@ describe("command vault settings", () => {
   it("uses the MVP defaults when the workspace configuration is unavailable", () => {
     assert.deepEqual(readCommandVaultSettings(), {
       defaultExecutionBehavior: "run",
+      terminalExecutionMode: "current",
     });
   });
 
@@ -23,6 +24,8 @@ describe("command vault settings", () => {
             switch (key) {
               case "defaultExecutionBehavior":
                 return "paste" as T;
+              case "terminalExecutionMode":
+                return "dedicated" as T;
               default:
                 return defaultValue;
             }
@@ -34,6 +37,7 @@ describe("command vault settings", () => {
     assert.deepEqual(requestedSections, [COMMAND_VAULT_CONFIGURATION_SECTION]);
     assert.deepEqual(settings, {
       defaultExecutionBehavior: "paste",
+      terminalExecutionMode: "dedicated",
     });
   });
 
@@ -45,6 +49,8 @@ describe("command vault settings", () => {
             switch (key) {
               case "defaultExecutionBehavior":
                 return "launch" as T;
+              case "terminalExecutionMode":
+                return "spawn" as T;
               default:
                 return defaultValue;
             }
@@ -55,6 +61,7 @@ describe("command vault settings", () => {
 
     assert.deepEqual(settings, {
       defaultExecutionBehavior: "run",
+      terminalExecutionMode: "current",
     });
   });
 });

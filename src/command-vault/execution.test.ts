@@ -82,6 +82,86 @@ describe("command vault execution service", () => {
     ]);
   });
 
+  it("creates and reuses dedicated terminals by command id", async () => {
+    const firstTerminal = createTerminalRecorder();
+    const secondTerminal = createTerminalRecorder();
+    const createdTerminalNames: string[] = [];
+    const execution = createCommandVaultExecutionService({
+      clipboard: {
+        writeText() {
+          throw new Error("clipboard should not be used");
+        },
+      },
+      getTerminalExecutionMode() {
+        return "dedicated";
+      },
+      terminals: {
+        activeTerminal: undefined,
+        createTerminal(name) {
+          createdTerminalNames.push(name);
+          return createdTerminalNames.length === 1
+            ? firstTerminal.terminal
+            : secondTerminal.terminal;
+        },
+      },
+    });
+
+    await execution.runCommand(SAMPLE_COMMAND);
+    await execution.runCommand(SAMPLE_COMMAND);
+
+    assert.deepEqual(createdTerminalNames, ["Command Vault: Start app"]);
+    assert.deepEqual(firstTerminal.sendTextCalls, [
+      { text: "npm run dev", addNewLine: true },
+      { text: "npm run dev", addNewLine: true },
+    ]);
+    assert.deepEqual(secondTerminal.sendTextCalls, []);
+  });
+
+  it("creates a new dedicated terminal after the previous one closes", async () => {
+    const firstTerminal = createTerminalRecorder();
+    const secondTerminal = createTerminalRecorder();
+    const createdTerminalNames: string[] = [];
+    let closeListener: ((terminal: typeof firstTerminal.terminal) => void) | undefined;
+    const execution = createCommandVaultExecutionService({
+      clipboard: {
+        writeText() {
+          throw new Error("clipboard should not be used");
+        },
+      },
+      getTerminalExecutionMode() {
+        return "dedicated";
+      },
+      terminals: {
+        activeTerminal: undefined,
+        createTerminal(name) {
+          createdTerminalNames.push(name);
+          return createdTerminalNames.length === 1
+            ? firstTerminal.terminal
+            : secondTerminal.terminal;
+        },
+        onDidCloseTerminal(listener) {
+          closeListener = listener;
+          return { dispose() {} };
+        },
+      },
+    });
+
+    await execution.runCommand(SAMPLE_COMMAND);
+    closeListener?.(firstTerminal.terminal);
+    await execution.runCommand(SAMPLE_COMMAND);
+
+    assert.deepEqual(createdTerminalNames, [
+      "Command Vault: Start app",
+      "Command Vault: Start app",
+    ]);
+    assert.deepEqual(firstTerminal.sendTextCalls, [
+      { text: "npm run dev", addNewLine: true },
+    ]);
+    assert.deepEqual(secondTerminal.sendTextCalls, [
+      { text: "npm run dev", addNewLine: true },
+    ]);
+  });
+
   it("copies the raw command text to the clipboard", async () => {
     const clipboardWrites: string[] = [];
     const execution = createCommandVaultExecutionService({

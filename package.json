@@ -89,6 +89,15 @@
             "paste"
           ],
           "markdownDescription": "Controls the default quick-pick execution action. `run` sends the command and executes it on Enter, while `paste` sends the command without a trailing newline on Enter."
+        },
+        "commandVault.terminalExecutionMode": {
+          "type": "string",
+          "default": "current",
+          "enum": [
+            "current",
+            "dedicated"
+          ],
+          "markdownDescription": "Controls where commands are sent. `current` uses the active terminal when available. `dedicated` creates and reuses one terminal per command."
         }
       }
     }

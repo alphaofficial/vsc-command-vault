@@ -88,6 +88,12 @@ export interface CommandVaultExtensionHost {
       sendText(text: string, addNewLine?: boolean): void;
       show(preserveFocus?: boolean): void;
     };
+    onDidCloseTerminal?(
+      listener: (terminal: {
+        sendText(text: string, addNewLine?: boolean): void;
+        show(preserveFocus?: boolean): void;
+      }) => void,
+    ): CommandVaultExtensionDisposable;
     registerWebviewViewProvider(
       viewId: string,
       provider: {
@@ -102,6 +108,11 @@ export interface CommandVaultExtensionHost {
             };
           };
         }): void | Promise<void>;
+      },
+      options?: {
+        webviewOptions?: {
+          retainContextWhenHidden?: boolean;
+        };
       },
     ): CommandVaultExtensionDisposable;
     createQuickPick?<Item extends { label: string }>() : {
@@ -197,6 +208,9 @@ export function activate(
   });
   const execution = createCommandVaultExecutionService({
     clipboard: resolvedHost.env.clipboard,
+    getTerminalExecutionMode() {
+      return getSettings().terminalExecutionMode;
+    },
     terminals: resolvedHost.window,
   });
   const search = createCommandVaultSearchService({
@@ -558,6 +572,7 @@ export function activate(
   const sidebarDisposable = resolvedHost.window.registerWebviewViewProvider(
     COMMAND_VAULT_VIEW_ID,
     sidebarProvider,
+    { webviewOptions: { retainContextWhenHidden: true } },
   );
   const configurationChangeDisposable =
     resolvedHost.workspace.onDidChangeConfiguration?.(async (event) => {
