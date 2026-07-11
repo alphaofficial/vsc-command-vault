@@ -103,6 +103,11 @@ export interface CommandVaultExtensionHost {
           };
         }): void | Promise<void>;
       },
+      options?: {
+        webviewOptions?: {
+          retainContextWhenHidden?: boolean;
+        };
+      },
     ): CommandVaultExtensionDisposable;
     createQuickPick?<Item extends { label: string }>() : {
       activeItems: readonly Item[];
@@ -558,6 +563,7 @@ export function activate(
   const sidebarDisposable = resolvedHost.window.registerWebviewViewProvider(
     COMMAND_VAULT_VIEW_ID,
     sidebarProvider,
+    { webviewOptions: { retainContextWhenHidden: true } },
   );
   const configurationChangeDisposable =
     resolvedHost.workspace.onDidChangeConfiguration?.(async (event) => {
