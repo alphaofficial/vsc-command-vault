@@ -274,18 +274,19 @@ describe("extension scaffold", () => {
     const storagePath = await mkdtemp(
       join(tmpdir(), "command-vault-sidebar-export-import-"),
     );
-    const saveDialogCalls: Array<{
-      defaultUri?: { fsPath: string };
-      filters?: Record<string, string[]>;
-    }> = [];
-    const openDialogCalls: Array<{
-      filters?: Record<string, string[]>;
-    }> = [];
-    const warningMessages: string[] = [];
-    let showSaveDialogCalls = 0;
-    let showOpenDialogCalls = 0;
-    let showInputBoxCalls = 0;
-    let showQuickPickCalls = 0;
+    const workspacePath = "/tmp/command-vault-sidebar-export-import-workspace";
+    const workspaceId = createWorkspaceId(workspacePath);
+    const exportPath = join(
+      await mkdtemp(join(tmpdir(), "command-vault-sidebar-export-")),
+      "commands.json",
+    );
+    await writeCommands(storagePath, workspaceId, [
+      createStoredCommand("command-1", {
+        name: "Lint",
+        command: "npm run lint",
+        description: "Run lint checks",
+      }),
+    ]);
     let registeredProvider:
       | Parameters<
           CommandVaultExtensionHost["window"]["registerWebviewViewProvider"]
@@ -294,10 +295,10 @@ describe("extension scaffold", () => {
     let receiveMessage:
       | ((message: unknown) => void | Promise<void>)
       | undefined;
-    const terminalEvents: Array<{ text: string; addNewLine?: boolean }> = [];
     const host = createHost({
       workspacePath,
-      terminalEvents,
+      openDialogPath: exportPath,
+      saveDialogPath: exportPath,
       onRegisterProvider(provider) {
         registeredProvider = provider;
       },
@@ -311,13 +312,40 @@ describe("extension scaffold", () => {
     await registeredProvider?.resolveWebviewView({ webview });
     await receiveMessage?.({
       type: "commandVault.action",
-      action: "run",
-      target: { id: command.id },
+      action: "export",
     });
 
-    assert.deepEqual(terminalEvents, [
-      { text: "npm run dev", addNewLine: true },
+    const exportedPayload = JSON.parse(
+      await readFile(exportPath, { encoding: "utf8" }),
+    ) as {
+      commands: Array<{ command: string; description: string | null; name: string }>;
+      version: string;
+    };
+    assert.equal(exportedPayload.version, "1.0");
+    assert.deepEqual(exportedPayload.commands, [
+      {
+        name: "Lint",
+        command: "npm run lint",
+        description: "Run lint checks",
+      },
     ]);
+
+    await writeCommands(storagePath, workspaceId, []);
+    await receiveMessage?.({
+      type: "commandVault.action",
+      action: "import",
+    });
+
+    const restoredCommands = JSON.parse(
+      await readFile(join(storagePath, "workspaces", `${workspaceId}.json`), {
+        encoding: "utf8",
+      }),
+    ) as CommandVaultCommand[];
+    assert.equal(restoredCommands.length, 1);
+    assert.notEqual(restoredCommands[0]?.id, "command-1");
+    assert.equal(restoredCommands[0]?.name, "Lint");
+    assert.equal(restoredCommands[0]?.command, "npm run lint");
+    assert.equal(restoredCommands[0]?.description, "Run lint checks");
   });
 
   it("round-trips commands through sidebar export and import", async () => {
