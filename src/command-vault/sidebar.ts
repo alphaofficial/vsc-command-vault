@@ -279,6 +279,7 @@ export function renderCommandVaultSidebarHtml(
       .command-card {
         display: grid;
         gap: 12px;
+        min-width: 0;
         padding: 14px;
         border: 1px solid var(--vscode-panel-border);
         background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent);
@@ -291,6 +292,7 @@ export function renderCommandVaultSidebarHtml(
       .command-copy-block {
         display: grid;
         gap: 8px;
+        min-width: 0;
       }
 
       .command-title-row {
@@ -312,10 +314,18 @@ export function renderCommandVaultSidebarHtml(
         line-height: 1.4;
       }
 
+      .command-display {
+        position: relative;
+        min-width: 0;
+        width: 100%;
+      }
+
       .command-text {
+        display: block;
+        min-width: 0;
+        width: 100%;
         margin: 0;
-        padding: 10px 12px;
-        overflow-x: auto;
+        padding: 10px 44px 10px 12px;
         background: var(--vscode-textCodeBlock-background, color-mix(in srgb, var(--vscode-editor-background) 88%, black));
         color: var(--vscode-textPreformat-foreground, var(--vscode-foreground));
         font-family: var(--vscode-editor-font-family, var(--vscode-font-family));
@@ -324,6 +334,13 @@ export function renderCommandVaultSidebarHtml(
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      .command-display .command-action {
+        position: absolute;
+        top: 50%;
+        right: 10px;
+        transform: translateY(-50%);
       }
 
       .command-actions {
@@ -523,6 +540,10 @@ export function renderCommandVaultSidebarHtml(
           return;
         }
 
+        if (action === "copy") {
+          showCopyFeedback(button);
+        }
+
         if (!action) {
           return;
         }
@@ -538,6 +559,34 @@ export function renderCommandVaultSidebarHtml(
 
         vscode.postMessage(message);
       });
+
+      function showCopyFeedback(button) {
+        const icon = button.querySelector(".action-icon");
+
+        if (!(icon instanceof HTMLElement)) {
+          return;
+        }
+
+        const previousText = icon.textContent;
+        const previousLabel = button.getAttribute("aria-label");
+        const previousTitle = button.getAttribute("title");
+
+        icon.textContent = "✓";
+        button.setAttribute("aria-label", "Copied");
+        button.setAttribute("title", "Copied");
+
+        window.setTimeout(() => {
+          icon.textContent = previousText;
+
+          if (previousLabel) {
+            button.setAttribute("aria-label", previousLabel);
+          }
+
+          if (previousTitle) {
+            button.setAttribute("title", previousTitle);
+          }
+        }, 900);
+      }
 
       document.addEventListener("submit", (event) => {
         const form = event.target;
@@ -727,14 +776,15 @@ function renderCommandCard(command: CommandVaultCommand): string {
     `<h3 class="command-name">${escapeHtml(command.name)}</h3>`,
     '<div class="command-actions" aria-label="Command actions">',
     renderActionButton("Run", "run", command),
-    renderActionButton("Paste", "paste", command, "secondary"),
-    renderActionButton("Copy", "copy", command, "secondary"),
     renderActionButton("Edit", "edit", command, "secondary"),
     renderActionButton("Delete", "delete", command, "secondary"),
     "</div>",
     "</div>",
     description,
-    `<pre class="command-text" title="${escapeHtmlAttribute(command.command)}">${escapeHtml(truncateCommand(command.command))}</pre>`,
+    '<div class="command-display">',
+    `<pre class="command-text" title="${escapeHtmlAttribute(command.command)}">${escapeHtml(command.command)}</pre>`,
+    renderActionButton("Copy", "copy", command, "secondary"),
+    "</div>",
     "</div>",
     renderEditCommandForm(command),
     "</li>",
@@ -940,16 +990,6 @@ function isCommandVaultSidebarAction(
     value === "paste" ||
     value === "run"
   );
-}
-
-function truncateCommand(command: string): string {
-  const maxLength = 55;
-
-  if (command.length <= maxLength) {
-    return command;
-  }
-
-  return `${command.slice(0, maxLength - 1)}…`;
 }
 
 function escapeHtml(value: string): string {
