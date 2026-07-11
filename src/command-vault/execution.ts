@@ -14,6 +14,9 @@ export interface CommandVaultTerminal {
 export interface CommandVaultTerminalManager {
   activeTerminal: CommandVaultTerminal | undefined;
   createTerminal(name: string): CommandVaultTerminal;
+  onDidCloseTerminal?(
+    listener: (terminal: CommandVaultTerminal) => void,
+  ): { dispose(): unknown } | void;
 }
 
 export interface CommandVaultClipboard {
@@ -42,15 +45,19 @@ export interface CommandVaultExecutionWindow {
 
 export interface CommandVaultExecutionServiceOptions {
   clipboard: CommandVaultClipboard;
+  getTerminalExecutionMode?: () => "current" | "dedicated";
   terminals: CommandVaultTerminalManager;
   terminalName?: string;
 }
 
 export interface CommandVaultExecutionService {
   copyCommand(command: Pick<CommandVaultCommand, "command">): Promise<void>;
-  pasteCommand(command: Pick<CommandVaultCommand, "command">): Promise<void>;
-  runCommand(command: Pick<CommandVaultCommand, "command">): Promise<void>;
+  pasteCommand(command: CommandVaultExecutableCommand): Promise<void>;
+  runCommand(command: CommandVaultExecutableCommand): Promise<void>;
 }
+
+type CommandVaultExecutableCommand = Pick<CommandVaultCommand, "command" | "id"> &
+  Partial<Pick<CommandVaultCommand, "name">>;
 
 export interface ResolveStoredCommandForActionOptions {
   repository: CommandVaultRepository;
@@ -64,6 +71,15 @@ export function createCommandVaultExecutionService(
   options: CommandVaultExecutionServiceOptions,
 ): CommandVaultExecutionService {
   const terminalName = options.terminalName ?? COMMAND_VAULT_TERMINAL_NAME;
+  const commandTerminals = new Map<string, CommandVaultTerminal>();
+
+  options.terminals.onDidCloseTerminal?.((terminal) => {
+    for (const [commandKey, commandTerminal] of commandTerminals) {
+      if (commandTerminal === terminal) {
+        commandTerminals.delete(commandKey);
+      }
+    }
+  });
 
   return {
     async copyCommand(command) {
@@ -71,11 +87,25 @@ export function createCommandVaultExecutionService(
     },
 
     async pasteCommand(command) {
-      dispatchToTerminal(options.terminals, terminalName, command.command, false);
+      dispatchToTerminal(
+        options.terminals,
+        terminalName,
+        commandTerminals,
+        options.getTerminalExecutionMode?.() ?? "current",
+        command,
+        false,
+      );
     },
 
     async runCommand(command) {
-      dispatchToTerminal(options.terminals, terminalName, command.command, true);
+      dispatchToTerminal(
+        options.terminals,
+        terminalName,
+        commandTerminals,
+        options.getTerminalExecutionMode?.() ?? "current",
+        command,
+        true,
+      );
     },
   };
 }
@@ -110,13 +140,36 @@ export async function resolveStoredCommandForAction(
 function dispatchToTerminal(
   terminals: CommandVaultTerminalManager,
   terminalName: string,
-  text: string,
+  commandTerminals: Map<string, CommandVaultTerminal>,
+  terminalExecutionMode: "current" | "dedicated",
+  command: CommandVaultExecutableCommand,
   addNewLine: boolean,
 ): void {
-  const terminal = terminals.activeTerminal ?? terminals.createTerminal(terminalName);
+  const terminal =
+    terminalExecutionMode === "dedicated"
+      ? resolveDedicatedCommandTerminal(terminals, commandTerminals, terminalName, command)
+      : terminals.activeTerminal ?? terminals.createTerminal(terminalName);
 
   terminal.show(false);
-  terminal.sendText(text, addNewLine);
+  terminal.sendText(command.command, addNewLine);
+}
+
+function resolveDedicatedCommandTerminal(
+  terminals: CommandVaultTerminalManager,
+  commandTerminals: Map<string, CommandVaultTerminal>,
+  terminalName: string,
+  command: CommandVaultExecutableCommand,
+): CommandVaultTerminal {
+  const commandKey = command.id || command.command;
+  const existingTerminal = commandTerminals.get(commandKey);
+
+  if (existingTerminal) {
+    return existingTerminal;
+  }
+
+  const terminal = terminals.createTerminal(`${terminalName}: ${command.name ?? command.command}`);
+  commandTerminals.set(commandKey, terminal);
+  return terminal;
 }
 
 async function readCommandsForAction(

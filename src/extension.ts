@@ -88,6 +88,12 @@ export interface CommandVaultExtensionHost {
       sendText(text: string, addNewLine?: boolean): void;
       show(preserveFocus?: boolean): void;
     };
+    onDidCloseTerminal?(
+      listener: (terminal: {
+        sendText(text: string, addNewLine?: boolean): void;
+        show(preserveFocus?: boolean): void;
+      }) => void,
+    ): CommandVaultExtensionDisposable;
     registerWebviewViewProvider(
       viewId: string,
       provider: {
@@ -202,6 +208,9 @@ export function activate(
   });
   const execution = createCommandVaultExecutionService({
     clipboard: resolvedHost.env.clipboard,
+    getTerminalExecutionMode() {
+      return getSettings().terminalExecutionMode;
+    },
     terminals: resolvedHost.window,
   });
   const search = createCommandVaultSearchService({
